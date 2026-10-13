@@ -14,7 +14,7 @@ describe('AuthService.exchangeCode', () => {
     const redis: any = { set: jest.fn().mockResolvedValue(undefined) };
     const rateLimit: any = { hit: jest.fn().mockResolvedValue(true) };
     const audit: any = { log: jest.fn().mockResolvedValue(undefined) };
-    const jwt: any = {};
+    const jwt: any = { signAsync: jest.fn().mockResolvedValue('jwt-exchange-token') };
     const service = new AuthService(prisma, jwt, crypto, rateLimit, redis, audit);
     return { service, prisma };
   };
