@@ -5,13 +5,13 @@ import { PaginationDto } from '../../../common/dto/pagination.dto';
 export class GenerateInvoiceDto {
   @ApiProperty({ description: '收费期 ID' }) @IsString() @IsNotEmpty() fee_period_id!: string;
 
-  @ApiPropertyOptional({ description: '校区 ID（与 student_ids 二选一）' })
+  @ApiPropertyOptional({ description: '校区 ID（可选；不传则按收费期适用校区自动确定）' })
   @IsOptional() @IsString() campus_id?: string;
 
-  @ApiPropertyOptional({ description: '指定学生 ID 列表（与 campus_id 二选一）', type: [String] })
+  @ApiPropertyOptional({ description: '指定学生 ID 列表（可选；不传则为范围内全部在读学生）', type: [String] })
   @IsOptional() @IsArray() @IsString({ each: true }) student_ids?: string[];
 
-  @ApiPropertyOptional({ description: '指定收费项目 ID 列表，空=该校区全部有效项目', type: [String] })
+  @ApiPropertyOptional({ description: '进一步限定收费项目 ID 列表（须在本期绑定范围内），空=本期全部绑定项目', type: [String] })
   @IsOptional() @IsArray() @IsString({ each: true }) fee_item_ids?: string[];
 
   @ApiPropertyOptional({ description: '幂等键（防重复提交）' })

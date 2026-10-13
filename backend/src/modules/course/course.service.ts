@@ -9,7 +9,7 @@ import { paginate } from '../../common/dto/pagination.dto';
 import { CampusPriceQueryDto, CourseQueryDto, FeeItemQueryDto } from './dto/course.dto';
 import {
   CloseCampusPriceDto, CreateCampusPriceDto, CreateCourseDto, CreateFeeItemDto,
-  UpdateCourseDto, UpdateFeeItemDto,
+  SetFeeItemPeriodsDto, UpdateCourseDto, UpdateFeeItemDto,
 } from './dto/course.dto';
 
 // 课程 / 收费项目 / 校区价格服务
@@ -121,6 +121,53 @@ export class CourseService {
     return updated;
   }
 
+  // ─── 收费项目 ↔ 收费期绑定 ───
+
+  /** 查询收费项目已绑定的收费期 */
+  async getFeeItemPeriods(feeItemId: string) {
+    const item = await this.prisma.feeItem.findUnique({ where: { id: feeItemId } });
+    if (!item) throw new NotFoundException({ code: 'ERR_NOT_FOUND', message: '收费项目不存在' });
+    const rows = await this.prisma.feeItemPeriod.findMany({
+      where: { fee_item_id: feeItemId },
+      include: { fee_period: { select: { id: true, code: true, name: true, status: true } } },
+      orderBy: { fee_period: { start_date: 'desc' } },
+    });
+    return rows.map((r) => r.fee_period);
+  }
+
+  /** 全量替换收费项目的适用收费期（先删后增，事务保证原子性） */
+  async setFeeItemPeriods(
+    user: AdminUserInfo, feeItemId: string, dto: SetFeeItemPeriodsDto,
+    requestId: string, ip: string,
+  ) {
+    const item = await this.prisma.feeItem.findUnique({ where: { id: feeItemId } });
+    if (!item) throw new NotFoundException({ code: 'ERR_NOT_FOUND', message: '收费项目不存在' });
+    const periodIds = Array.from(new Set((dto.fee_period_ids || []).filter(Boolean)));
+    if (periodIds.length > 0) {
+      const periods = await this.prisma.feePeriod.findMany({
+        where: { id: { in: periodIds } }, select: { id: true },
+      });
+      if (periods.length !== periodIds.length) {
+        throw new BadRequestException({ code: 'ERR_PERIOD_NOT_FOUND', message: '存在无效的收费期 ID' });
+      }
+    }
+    await this.prisma.$transaction(async (tx) => {
+      await tx.feeItemPeriod.deleteMany({ where: { fee_item_id: feeItemId } });
+      if (periodIds.length > 0) {
+        await tx.feeItemPeriod.createMany({
+          data: periodIds.map((pid) => ({ fee_item_id: feeItemId, fee_period_id: pid })),
+          skipDuplicates: true,
+        });
+      }
+    });
+    await this.audit.log({
+      actorType: 'admin', actorId: user.id, action: 'fee-item.set-periods', resourceType: 'fee_item',
+      resourceId: feeItemId, result: 'success', requestId, ip,
+      metadata: { fee_period_ids: periodIds },
+    });
+    return this.getFeeItemPeriods(feeItemId);
+  }
+
   // ─── 校区价格 ───
 
   async listCampusPrices(
@@ -222,5 +269,31 @@ export class CourseService {
     });
     // 只要项目启用的
     return prices.filter((p) => p.fee_item.status === 'active');
+  }
+
+  /**
+   * 批量查询多个（校区，收费项目）在某日的有效价格。
+   * 返回 Map，key 为 `${campus_id}::${fee_item_id}`，每个 key 只保留一条
+   * （生效日期最晚的一条）；项目已停用的不返回。
+   */
+  async getEffectivePriceMap(campusIds: string[], feeItemIds: string[], atDate: Date) {
+    if (campusIds.length === 0 || feeItemIds.length === 0) return new Map<string, any>();
+    const prices = await this.prisma.campusFeePrice.findMany({
+      where: {
+        campus_id: { in: campusIds },
+        fee_item_id: { in: feeItemIds },
+        effective_from: { lte: atDate },
+        OR: [{ effective_to: null }, { effective_to: { gte: atDate } }],
+      },
+      include: { fee_item: true },
+      orderBy: { effective_from: 'desc' },
+    });
+    const map = new Map<string, any>();
+    for (const p of prices) {
+      if (p.fee_item.status !== 'active') continue; // 项目已停用：视为无有效价格
+      const key = `${p.campus_id}::${p.fee_item_id}`;
+      if (!map.has(key)) map.set(key, p);
+    }
+    return map;
   }
 }

@@ -16,7 +16,7 @@ import { CreateStudentDto, IMPORT_TEMPLATE_HEADERS, StudentQueryDto, UpdateStude
 
 // 学生服务：档案 CRUD + Excel/CSV 导入（上传→解析→预览→确认→错误报告）
 // 个人信息最小化：不收集身份证号；家长手机号加密存储
-// 导入列：姓名*, 校区编码, 班级/年级, 家长手机号, 内部学号
+// 导入列：姓名*, 校区编码, 班级/年级, 家长手机号, 内部学号*, 收费项目编码
 // 校区归属：上传时可指定 campus_id（整批归属），否则按行读取"校区编码"列
 @Injectable()
 export class StudentService {
@@ -51,7 +51,10 @@ export class StudentService {
       this.prisma.student.count({ where }),
       this.prisma.student.findMany({
         where,
-        include: { campus: { select: { id: true, code: true, name: true } } },
+        include: {
+          campus: { select: { id: true, code: true, name: true } },
+          fee_item: { select: { id: true, code: true, name: true } },
+        },
         orderBy: { created_at: 'desc' },
         skip: (page - 1) * pageSize,
         take: pageSize,
@@ -60,6 +63,7 @@ export class StudentService {
     const masked = items.map((s) => ({
       ...s,
       campus_name: s.campus.name,
+      fee_item_name: s.fee_item?.name ?? null,
       guardian_phone: s.guardian_phone
         ? this.crypto.maskPhone(this.tryDecrypt(s.guardian_phone))
         : null,
@@ -80,6 +84,8 @@ export class StudentService {
   async create(user: AdminUserInfo, dto: CreateStudentDto, requestId: string, ip: string) {
     const campus = await this.requireActiveCampusById(dto.campus_id);
     this.scope.assertCampus(user, campus.id, '校区');
+    // 绑定的收费项目必须存在且启用
+    if (dto.fee_item_id) await this.requireActiveFeeItem(dto.fee_item_id);
     try {
       const student = await this.prisma.student.create({
         data: {
@@ -88,6 +94,7 @@ export class StudentService {
           student_no: dto.student_no?.trim() || null,
           grade_or_class: dto.grade_or_class?.trim() || null,
           guardian_phone: this.crypto.encryptField(dto.guardian_phone),
+          fee_item_id: dto.fee_item_id || null,
         },
       });
       await this.audit.log({
@@ -114,6 +121,11 @@ export class StudentService {
     if (dto.grade_or_class !== undefined) data.grade_or_class = dto.grade_or_class?.trim() || null;
     if (dto.guardian_phone !== undefined) data.guardian_phone = this.crypto.encryptField(dto.guardian_phone);
     if (dto.status !== undefined) data.status = dto.status;
+    // 传 null 表示清空绑定；传值则校验存在且启用
+    if (dto.fee_item_id !== undefined) {
+      if (dto.fee_item_id) await this.requireActiveFeeItem(dto.fee_item_id);
+      data.fee_item_id = dto.fee_item_id || null;
+    }
     try {
       const updated = await this.prisma.student.update({ where: { id }, data });
       await this.audit.log({
@@ -145,6 +157,15 @@ export class StudentService {
     return campus;
   }
 
+  /** 校验收费项目存在且启用（学生绑定用） */
+  private async requireActiveFeeItem(id: string) {
+    const item = await this.prisma.feeItem.findUnique({ where: { id } });
+    if (!item || item.status !== 'active') {
+      throw new BadRequestException({ code: 'ERR_FEE_ITEM_INVALID', message: '收费项目不存在或已停用' });
+    }
+    return item;
+  }
+
   private tryDecrypt(v: string | null): string | null {
     try {
       return this.crypto.decryptField(v);
@@ -160,9 +181,9 @@ export class StudentService {
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('学生名单');
     ws.addRow(IMPORT_TEMPLATE_HEADERS);
-    ws.addRow(['张三', 'BJ01', '高一(3)班', '13800001111', 'XS2026001']);
+    ws.addRow(['张三', 'BJ01', '高一(3)班', '13800001111', 'XS2026001', 'N5-FEE']);
     ws.getRow(1).font = { bold: true };
-    ws.columns = [{ width: 14 }, { width: 14 }, { width: 16 }, { width: 18 }, { width: 16 }];
+    ws.columns = [{ width: 14 }, { width: 14 }, { width: 16 }, { width: 18 }, { width: 16 }, { width: 16 }];
     return Buffer.from(await wb.xlsx.writeBuffer());
   }
 
@@ -244,6 +265,7 @@ export class StudentService {
               student_no: r.student_no || null,
               grade_or_class: r.grade_or_class || null,
               guardian_phone: this.crypto.encryptField(r.guardian_phone || null),
+              fee_item_id: r.fee_item_id || null,
             },
           });
           imported++;
@@ -278,7 +300,7 @@ export class StudentService {
     ws.addRow([...IMPORT_TEMPLATE_HEADERS, '错误原因']);
     ws.getRow(1).font = { bold: true };
     for (const r of rows) {
-      ws.addRow([r.name, r.campus_code, r.grade_or_class, r.guardian_phone_masked, r.student_no, r.errors.join('；')]);
+      ws.addRow([r.name, r.campus_code, r.grade_or_class, r.guardian_phone_masked, r.student_no, r.fee_item_code, r.errors.join('；')]);
     }
     await this.audit.log({
       actorType: 'admin', actorId: user.id, action: 'student.import.error_report',
@@ -323,10 +345,10 @@ export class StudentService {
     ws.eachRow((row, rowNumber) => {
       if (rowNumber === 1) return; // 表头
       const v = (c: number) => String(row.getCell(c).value ?? '').trim();
-      if (!v(1) && !v(2) && !v(3) && !v(4) && !v(5)) return; // 全空行跳过
+      if (!v(1) && !v(2) && !v(3) && !v(4) && !v(5) && !v(6)) return; // 全空行跳过
       rows.push({
         name: v(1), campus_code: v(2), grade_or_class: v(3),
-        guardian_phone: v(4), student_no: v(5), _line: String(rowNumber),
+        guardian_phone: v(4), student_no: v(5), fee_item_code: v(6), _line: String(rowNumber),
       });
     });
     return this.checkRows(rows);
@@ -343,10 +365,10 @@ export class StudentService {
       if (!line.trim()) continue;
       const cells = this.splitCsvLine(line);
       const v = (n: number) => (cells[n] || '').trim();
-      if (!v(0) && !v(1) && !v(2) && !v(3) && !v(4)) continue;
+      if (!v(0) && !v(1) && !v(2) && !v(3) && !v(4) && !v(5)) continue;
       rows.push({
         name: v(0), campus_code: v(1), grade_or_class: v(2),
-        guardian_phone: v(3), student_no: v(4), _line: String(i + 1),
+        guardian_phone: v(3), student_no: v(4), fee_item_code: v(5), _line: String(i + 1),
       });
     }
     return this.checkRows(rows);
@@ -397,6 +419,15 @@ export class StudentService {
       ? await this.prisma.campus.findMany({ where: { code: { in: Array.from(codes) } } })
       : [];
     const campusByCode = new Map(campusList.map((c) => [c.code, c]));
+    // 收集收费项目编码并校验存在性
+    const feeItemCodes = new Set<string>();
+    for (const r of rows) {
+      if (r.fee_item_code) feeItemCodes.add(r.fee_item_code);
+    }
+    const feeItemList = feeItemCodes.size > 0
+      ? await this.prisma.feeItem.findMany({ where: { code: { in: Array.from(feeItemCodes) } } })
+      : [];
+    const feeItemByCode = new Map(feeItemList.map((f) => [f.code, f]));
     // 各校区已有学号（去重用）
     const campusIds = new Set<string>();
     if (jobCampusId) campusIds.add(jobCampusId);
@@ -438,13 +469,29 @@ export class StudentService {
 
       if (!r.name) errors.push('姓名必填');
       if (r.name && r.name.length > 100) errors.push('姓名过长');
-      if (r.student_no && campusId) {
+      // 内部学号必填：作为去重唯一键
+      if (!r.student_no) {
+        errors.push('内部学号必填（用于去重）');
+      } else if (campusId) {
         const key = `${campusId}::${r.student_no}`;
         if (existingKeys.has(key)) errors.push(`学号已存在：${r.student_no}`);
         else if (seenKeys.has(key)) errors.push(`本批次学号重复：${r.student_no}`);
         else seenKeys.add(key);
       }
       if (r.guardian_phone && !phoneRe.test(r.guardian_phone)) errors.push('家长手机号格式不正确');
+
+      // 收费项目编码：填了就必须存在且启用
+      let feeItemId: string | null = null;
+      if (r.fee_item_code) {
+        const fi = feeItemByCode.get(r.fee_item_code);
+        if (!fi) {
+          errors.push(`收费项目编码无效：${r.fee_item_code}`);
+        } else if (fi.status !== 'active') {
+          errors.push(`收费项目已停用：${r.fee_item_code}`);
+        } else {
+          feeItemId = fi.id;
+        }
+      }
 
       return {
         line: r._line,
@@ -455,6 +502,8 @@ export class StudentService {
         grade_or_class: r.grade_or_class || null,
         guardian_phone: r.guardian_phone || null,
         guardian_phone_masked: r.guardian_phone ? this.crypto.maskPhone(r.guardian_phone) : null,
+        fee_item_code: r.fee_item_code || null,
+        fee_item_id: feeItemId,
         errors,
       };
     });

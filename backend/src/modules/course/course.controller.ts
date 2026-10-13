@@ -3,7 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CourseService } from './course.service';
 import {
   CampusPriceQueryDto, CloseCampusPriceDto, CourseQueryDto, CreateCampusPriceDto, CreateCourseDto, CreateFeeItemDto,
-  FeeItemQueryDto, UpdateCourseDto, UpdateFeeItemDto,
+  FeeItemQueryDto, SetFeeItemPeriodsDto, UpdateCourseDto, UpdateFeeItemDto,
 } from './dto/course.dto';
 import { AdminJwtGuard } from '../../common/guards/admin-jwt.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -70,6 +70,23 @@ export class CourseController {
     @RequestId() requestId: string, @ClientIp() ip: string,
   ) {
     return this.service.updateFeeItem(user, id, dto, requestId, ip);
+  }
+
+  @Get('admin/fee-items/:id/periods')
+  @Permissions(PERM.FEE_ITEM_READ)
+  @ApiOperation({ summary: '查询收费项目已绑定的收费期' })
+  getFeeItemPeriods(@Param('id') id: string) {
+    return this.service.getFeeItemPeriods(id);
+  }
+
+  @Post('admin/fee-items/:id/periods')
+  @Permissions(PERM.FEE_ITEM_WRITE)
+  @ApiOperation({ summary: '设置收费项目的适用收费期（全量替换）' })
+  setFeeItemPeriods(
+    @CurrentUser() user: AdminUserInfo, @Param('id') id: string, @Body() dto: SetFeeItemPeriodsDto,
+    @RequestId() requestId: string, @ClientIp() ip: string,
+  ) {
+    return this.service.setFeeItemPeriods(user, id, dto, requestId, ip);
   }
 
   @Get('admin/campus-fee-prices')

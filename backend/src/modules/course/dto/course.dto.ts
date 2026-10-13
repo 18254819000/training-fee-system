@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsDateString, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { IsArray, IsDateString, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 import { PaginationDto } from '../../../common/dto/pagination.dto';
 
 export class CreateCourseDto {
@@ -43,6 +43,13 @@ export class CreateCampusPriceDto {
 export class CloseCampusPriceDto {
   @ApiProperty({ example: '2026-12-31', description: '将失效日期设为该日（含）' })
   @IsDateString() effective_to!: string;
+}
+
+/** 收费项目绑定收费期：全量替换该项目适用的收费期 */
+export class SetFeeItemPeriodsDto {
+  @ApiProperty({ description: '收费期 ID 列表（空数组=解绑全部）', type: [String] })
+  @IsArray() @IsString({ each: true })
+  fee_period_ids!: string[];
 }
 
 export class CourseQueryDto extends PaginationDto {
