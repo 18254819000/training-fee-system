@@ -67,34 +67,35 @@ export class CourseService {
     if (query.course_id) where.course_id = query.course_id;
     if (query.keyword) where.OR = [{ name: { contains: query.keyword } }, { code: { contains: query.keyword } }];
     const now = new Date();
-    const [total, items] = await Promise.all([
+    const [total, items, campuses] = await Promise.all([
       this.prisma.feeItem.count({ where }),
       this.prisma.feeItem.findMany({
         where,
         include: {
           course: true,
-          campus_prices: {
+          campus_fee_prices: {
             where: { effective_from: { lte: now }, OR: [{ effective_to: null }, { effective_to: { gte: now } }] },
-            include: { campus: { select: { id: true, name: true } } },
             orderBy: { effective_from: 'desc' },
           },
         },
         orderBy: { created_at: 'desc' }, skip: (page - 1) * pageSize, take: pageSize,
       }),
+      this.prisma.campus.findMany({ select: { id: true, name: true } }),
     ]);
+    const campusName = new Map(campuses.map((c) => [c.id, c.name]));
     // 每个校区只保留一条当前有效价格
     const mapped = items.map((it: any) => {
       const seen = new Set<string>();
-      const prices = (it.campus_prices || []).filter((p: any) => {
+      const prices = (it.campus_fee_prices || []).filter((p: any) => {
         if (seen.has(p.campus_id)) return false;
         seen.add(p.campus_id);
         return true;
       }).map((p: any) => ({
         campus_id: p.campus_id,
-        campus_name: p.campus?.name ?? '',
+        campus_name: campusName.get(p.campus_id) ?? p.campus_id,
         amount_fen: Number(p.amount_fen),
       }));
-      const { campus_prices, ...rest } = it;
+      const { campus_fee_prices, ...rest } = it;
       return { ...rest, current_prices: prices };
     });
     return paginate(mapped, total, page, pageSize);
