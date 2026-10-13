@@ -135,6 +135,8 @@ model FeePeriod {
 
   fee_period_campuses FeePeriodCampus[]
   invoices            Invoice[]
+  // 本期适用的收费项目（多对多）
+  fee_item_periods  FeeItemPeriod[]
 
   @@map("fee_periods")
 }
@@ -157,6 +159,9 @@ model Student {
   name            String        @db.VarChar(100)
   campus_id       String
   campus          Campus        @relation(fields: [campus_id], references: [id], onDelete: Restrict)
+  // 绑定的收费项目（报读课程对应的收费项）；可空，未绑定时生成账单跳过
+  fee_item_id     String?
+  fee_item        FeeItem?      @relation(fields: [fee_item_id], references: [id], onDelete: SetNull)
   grade_or_class  String?       @db.VarChar(100)
   // 家长手机号（加密存储，应用层 AES-GCM；最小化收集）
   guardian_phone  String?       @db.Text
@@ -261,8 +266,25 @@ model FeeItem {
 
   campus_fee_prices CampusFeePrice[]
   invoice_items     InvoiceItem[]
+  // 适用的收费期（多对多）
+  fee_item_periods  FeeItemPeriod[]
+  // 绑定该项目的学生
+  students          Student[]
 
   @@map("fee_items")
+}
+
+// 收费项目 ↔ 收费期（多对多：一个项目可用于多个期）
+model FeeItemPeriod {
+  fee_item_id   String
+  fee_period_id String
+  created_at    DateTime @default(now())
+
+  fee_item   FeeItem   @relation(fields: [fee_item_id], references: [id], onDelete: Cascade)
+  fee_period FeePeriod @relation(fields: [fee_period_id], references: [id], onDelete: Cascade)
+
+  @@id([fee_item_id, fee_period_id])
+  @@map("fee_item_periods")
 }
 
 model CampusFeePrice {
