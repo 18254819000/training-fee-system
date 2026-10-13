@@ -27,8 +27,7 @@ function convertKeys(value: unknown): unknown {
 @Injectable()
 export class CaseMiddleware implements NestMiddleware {
   use(req: Request, _res: Response, next: NextFunction) {
-    const url = (req as any).originalUrl || req.url || '';
-    if (url.includes('/payments/wechat/')) return next();
+    // 微信支付通知路径已在 AppModule.exclude 中排除，此处不再检查 URL
     try {
       const q = (req as any).query;
       if (q && typeof q === 'object') (req as any).query = convertKeys(q);

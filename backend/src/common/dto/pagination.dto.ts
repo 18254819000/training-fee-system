@@ -10,12 +10,12 @@ export class PaginationDto {
   @Min(1)
   page?: number = 1;
 
-  @ApiPropertyOptional({ default: 20, maximum: 100 })
+  @ApiPropertyOptional({ default: 20, maximum: 1000 })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(100) // 单页上限 100（防一次性导出过量数据）
+  @Max(1000) // 单页上限 1000（下拉框取全量场景需要 >100；防一次性导出过量数据）
   pageSize?: number = 20;
 }
 

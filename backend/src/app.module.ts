@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule, RequestMethod } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import configuration from './config/configuration';
@@ -60,4 +60,13 @@ import { StudentPortalModule } from './modules/student-portal/student-portal.mod
   ],
   providers: [RequestIdMiddleware, CaseMiddleware],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    // CaseMiddleware 必须走 MiddlewareConsumer（在 body 解析后执行），
+    // 直接 app.use() 会跑在 body 解析器之前导致 req.body 为 undefined
+    consumer
+      .apply(CaseMiddleware)
+      .exclude({ path: 'api/v1/payments/wechat/(.*)', method: RequestMethod.ALL })
+      .forRoutes('*');
+  }
+}
