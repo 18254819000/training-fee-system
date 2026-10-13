@@ -5,7 +5,8 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { CampusScopeService } from '../../common/guards/campus-scope.service';
 import { AuditService } from '../audit/audit.service';
 import { AdminUserInfo } from '../../common/types';
-import { paginate, PaginationDto } from '../../common/dto/pagination.dto';
+import { paginate } from '../../common/dto/pagination.dto';
+import { CampusPriceQueryDto, CourseQueryDto, FeeItemQueryDto } from './dto/course.dto';
 import {
   CloseCampusPriceDto, CreateCampusPriceDto, CreateCourseDto, CreateFeeItemDto,
   UpdateCourseDto, UpdateFeeItemDto,
@@ -24,7 +25,7 @@ export class CourseService {
 
   // ─── 课程 ───
 
-  async listCourses(query: PaginationDto & { status?: string; keyword?: string }) {
+  async listCourses(query: CourseQueryDto) {
     const page = query.page || 1;
     const pageSize = query.pageSize || 20;
     const where: any = {};
@@ -58,7 +59,7 @@ export class CourseService {
 
   // ─── 收费项目 ───
 
-  async listFeeItems(query: PaginationDto & { status?: string; keyword?: string; course_id?: string }) {
+  async listFeeItems(query: FeeItemQueryDto) {
     const page = query.page || 1;
     const pageSize = query.pageSize || 20;
     const where: any = {};
@@ -96,7 +97,7 @@ export class CourseService {
 
   async listCampusPrices(
     user: AdminUserInfo,
-    query: PaginationDto & { fee_item_id?: string; campus_id?: string },
+    query: CampusPriceQueryDto,
   ) {
     const page = query.page || 1;
     const pageSize = query.pageSize || 20;

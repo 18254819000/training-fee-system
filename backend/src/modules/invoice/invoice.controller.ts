@@ -6,7 +6,6 @@ import { AdminJwtGuard } from '../../common/guards/admin-jwt.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Permissions } from '../../common/decorators/auth.decorators';
 import { ClientIp, CurrentUser, RequestId } from '../../common/decorators/request.decorators';
-import { PaginationDto } from '../../common/dto/pagination.dto';
 import { AdminUserInfo, PERM } from '../../common/types';
 
 @ApiTags('管理端-账单')
@@ -19,7 +18,7 @@ export class InvoiceController {
   @Get()
   @Permissions(PERM.INVOICE_READ)
   @ApiOperation({ summary: '账单列表' })
-  list(@CurrentUser() user: AdminUserInfo, @Query() query: PaginationDto & InvoiceQueryDto) {
+  list(@CurrentUser() user: AdminUserInfo, @Query() query: InvoiceQueryDto) {
     return this.service.list(user, query);
   }
 

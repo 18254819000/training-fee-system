@@ -1,6 +1,6 @@
 /* 学生端 H5 全局基础样式:移动端优先,浅色 */
 :root {
-  --tfs-primary: #07c160; /* 微信绿,主按钮 */
+  --tfs-primary: #1677ff; /* 主色调:蓝,主按钮 */
   --tfs-danger: #ee0a24;
   --tfs-text: #323233;
   --tfs-text-2: #969799;
@@ -34,7 +34,7 @@ body {
 }
 
 .brand-header {
-  background: linear-gradient(135deg, #07c160, #05a552);
+  background: linear-gradient(135deg, #1677ff, #0958d9);
   color: #fff;
   padding: 28px 20px 20px;
 }

@@ -71,7 +71,7 @@ async function onSubmit() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #304156 0%, #1f2d3d 100%);
+  background: linear-gradient(135deg, #1677ff 0%, #0958d9 100%);
 }
 
 .login-card {

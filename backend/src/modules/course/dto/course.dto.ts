@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsDateString, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { PaginationDto } from '../../../common/dto/pagination.dto';
 
 export class CreateCourseDto {
   @ApiProperty({ example: 'JP-N5' }) @IsString() @IsNotEmpty() @MaxLength(32) code!: string;
@@ -42,4 +43,20 @@ export class CreateCampusPriceDto {
 export class CloseCampusPriceDto {
   @ApiProperty({ example: '2026-12-31', description: '将失效日期设为该日（含）' })
   @IsDateString() effective_to!: string;
+}
+
+export class CourseQueryDto extends PaginationDto {
+  @ApiPropertyOptional() @IsOptional() @IsString() status?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() keyword?: string;
+}
+
+export class FeeItemQueryDto extends PaginationDto {
+  @ApiPropertyOptional() @IsOptional() @IsString() status?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() keyword?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() course_id?: string;
+}
+
+export class CampusPriceQueryDto extends PaginationDto {
+  @ApiPropertyOptional() @IsOptional() @IsString() fee_item_id?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() campus_id?: string;
 }

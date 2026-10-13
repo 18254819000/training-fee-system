@@ -25,7 +25,7 @@ export class InvoiceService {
     private readonly courseService: CourseService,
   ) {}
 
-  async list(user: AdminUserInfo, query: PaginationDto & InvoiceQueryDto) {
+  async list(user: AdminUserInfo, query: InvoiceQueryDto) {
     const page = query.page || 1;
     const pageSize = query.pageSize || 20;
     const where: any = {};

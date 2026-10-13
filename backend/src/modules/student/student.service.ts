@@ -12,7 +12,7 @@ import { CampusScopeService } from '../../common/guards/campus-scope.service';
 import { AuditService } from '../audit/audit.service';
 import { AdminUserInfo } from '../../common/types';
 import { paginate, PaginationDto } from '../../common/dto/pagination.dto';
-import { CreateStudentDto, IMPORT_TEMPLATE_HEADERS, UpdateStudentDto } from './dto/student.dto';
+import { CreateStudentDto, IMPORT_TEMPLATE_HEADERS, StudentQueryDto, UpdateStudentDto } from './dto/student.dto';
 
 // 学生服务：档案 CRUD + Excel/CSV 导入（上传→解析→预览→确认→错误报告）
 // 个人信息最小化：不收集身份证号；家长手机号加密存储
@@ -31,7 +31,7 @@ export class StudentService {
 
   async list(
     user: AdminUserInfo,
-    query: PaginationDto & { campus_id?: string; status?: string; keyword?: string },
+    query: StudentQueryDto,
   ) {
     const page = query.page || 1;
     const pageSize = query.pageSize || 20;

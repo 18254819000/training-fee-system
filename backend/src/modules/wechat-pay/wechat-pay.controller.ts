@@ -2,6 +2,7 @@ import { Body, Controller, Get, Headers, HttpCode, Param, Post, Query, Req, UseG
 import { ApiBearerAuth, ApiExcludeEndpoint, ApiOperation, ApiTags} from '@nestjs/swagger';
 import { Request} from 'express';
 import { WechatPayService} from './wechat-pay.service';
+import { PaymentQueryDto } from './dto/payment-query.dto';
 import { AdminJwtGuard} from '../../common/guards/admin-jwt.guard';
 import { RolesGuard} from '../../common/guards/roles.guard';
 import { StudentSessionGuard} from '../../common/guards/student-session.guard';
@@ -43,7 +44,7 @@ constructor(private readonly service: WechatPayService) {}
 @Get()
 @Permissions(PERM.PAYMENT_READ)
 @ApiOperation({ summary: '支付订单列表'})
-list(@CurrentUser() user: AdminUserInfo, @Query() query: PaginationDto & Record<string, any>) {
+list(@CurrentUser() user: AdminUserInfo, @Query() query: PaymentQueryDto) {
 return this.service.adminList(user, query);
 }
 

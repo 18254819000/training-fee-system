@@ -7,7 +7,7 @@ import { memoryStorage } from 'multer';
 import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { StudentService } from './student.service';
-import { CreateStudentDto, UpdateStudentDto } from './dto/student.dto';
+import { CreateStudentDto, StudentQueryDto, UpdateStudentDto } from './dto/student.dto';
 import { AdminJwtGuard } from '../../common/guards/admin-jwt.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Permissions } from '../../common/decorators/auth.decorators';
@@ -27,7 +27,7 @@ export class StudentController {
   @ApiOperation({ summary: '学生列表' })
   list(
     @CurrentUser() user: AdminUserInfo,
-    @Query() query: PaginationDto & { campus_id?: string; status?: string; keyword?: string },
+    @Query() query: StudentQueryDto,
   ) {
     return this.service.list(user, query);
   }

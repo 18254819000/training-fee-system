@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsArray, IsBoolean, IsIn, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
+import { PaginationDto } from '../../../common/dto/pagination.dto';
 
 export class GenerateInvoiceDto {
   @ApiProperty({ description: '收费期 ID' }) @IsString() @IsNotEmpty() fee_period_id!: string;
@@ -25,7 +26,7 @@ export class VoidInvoiceDto {
   @IsOptional() @IsString() @MaxLength(500) reason?: string;
 }
 
-export class InvoiceQueryDto {
+export class InvoiceQueryDto extends PaginationDto {
   @ApiPropertyOptional() @IsOptional() @IsString() fee_period_id?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() campus_id?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() student_id?: string;

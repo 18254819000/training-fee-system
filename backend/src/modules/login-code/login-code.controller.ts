@@ -6,7 +6,6 @@ import { AdminJwtGuard } from '../../common/guards/admin-jwt.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Permissions } from '../../common/decorators/auth.decorators';
 import { ClientIp, CurrentUser, RequestId } from '../../common/decorators/request.decorators';
-import { PaginationDto } from '../../common/dto/pagination.dto';
 import { AdminUserInfo, PERM } from '../../common/types';
 
 @ApiTags('管理端-登录码')
@@ -19,7 +18,7 @@ export class LoginCodeController {
   @Get()
   @Permissions(PERM.LOGIN_CODE_MANAGE)
   @ApiOperation({ summary: '登录码状态查询（不返回明文）' })
-  list(@CurrentUser() user: AdminUserInfo, @Query() query: PaginationDto & LoginCodeQueryDto) {
+  list(@CurrentUser() user: AdminUserInfo, @Query() query: LoginCodeQueryDto) {
     return this.service.list(user, query);
   }
 

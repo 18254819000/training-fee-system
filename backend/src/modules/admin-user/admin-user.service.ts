@@ -6,6 +6,7 @@ import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { AdminUserInfo } from '../../common/types';
+import { AdminUserQueryDto, AuditLogQueryDto } from './dto/admin-user-query.dto';
 
 // 管理员 / 角色 / 审计日志查询
 // 铁律：
@@ -36,9 +37,9 @@ export class AdminUserService {
     };
   }
 
-  async listUsers(query: { page?: number; page_size?: number; status?: string; keyword?: string }) {
+  async listUsers(query: AdminUserQueryDto) {
     const page = query.page || 1;
-    const pageSize = Math.min(query.page_size || 20, 100);
+    const pageSize = Math.min(query.pageSize || 20, 100);
     const where: any = {};
     if (query.status) where.status = query.status;
     if (query.keyword) where.username = { contains: query.keyword };
@@ -313,12 +314,9 @@ export class AdminUserService {
 
   // ─── 审计日志查询 ───
 
-  async listAuditLogs(query: {
-    page?: number; page_size?: number; action?: string; keyword?: string;
-    actor_type?: string; result?: string; date_from?: string; date_to?: string;
-  }) {
+  async listAuditLogs(query: AuditLogQueryDto) {
     const page = query.page || 1;
-    const pageSize = Math.min(query.page_size || 20, 100);
+    const pageSize = Math.min(query.pageSize || 20, 100);
     const where: any = {};
     if (query.action) where.action = { contains: query.action };
     if (query.actor_type) where.actor_type = query.actor_type;

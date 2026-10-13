@@ -12,6 +12,7 @@ import {
   AdapterContext, MockWechatPayAdapter, NotifyEvent,
   RealWechatPayAdapter, WechatPayAdapter,
 } from './wechat-pay.adapter';
+import { PaymentQueryDto } from './dto/payment-query.dto';
 
 // 微信支付服务：JSAPI 下单 / 支付通知 / 退款通知 / 查单
 // 铁律：
@@ -475,10 +476,10 @@ export class WechatPayService {
 
   async adminList(
     admin: AdminUserInfo,
-    query: { page?: number; page_size?: number; campus_id?: string; fee_period_id?: string; status?: string; out_trade_no?: string; date_from?: string; date_to?: string },
+    query: PaymentQueryDto,
   ) {
     const page = query.page || 1;
-    const pageSize = Math.min(query.page_size || 20, 100);
+    const pageSize = Math.min(query.pageSize || 20, 100);
     const where: any = {};
     const scopeFilter = this.scope.scopeFilter(admin);
     if (query.campus_id) {

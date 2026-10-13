@@ -20,7 +20,7 @@ export class LoginCodeService {
 
   async list(
     user: AdminUserInfo,
-    query: PaginationDto & LoginCodeQueryDto,
+    query: LoginCodeQueryDto,
   ) {
     const page = query.page || 1;
     const pageSize = query.pageSize || 20;

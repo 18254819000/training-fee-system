@@ -1,6 +1,7 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AdminUserService } from './admin-user.service';
+import { AdminUserQueryDto, AuditLogQueryDto } from './dto/admin-user-query.dto';
 import { AdminJwtGuard } from '../../common/guards/admin-jwt.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Permissions } from '../../common/decorators/auth.decorators';
@@ -20,7 +21,7 @@ export class AdminUserController {
   @Get('users')
   @Permissions(PERM.ADMIN_USER_MANAGE)
   @ApiOperation({ summary: '管理员列表' })
-  listUsers(@Query() query: PaginationDto & Record<string, any>) {
+  listUsers(@Query() query: AdminUserQueryDto) {
     return this.service.listUsers(query);
   }
 
@@ -120,7 +121,7 @@ export class AdminUserController {
   @Get('audit-logs')
   @Permissions(PERM.AUDIT_READ)
   @ApiOperation({ summary: '审计日志查询' })
-  listAuditLogs(@Query() query: PaginationDto & Record<string, any>) {
+  listAuditLogs(@Query() query: AuditLogQueryDto) {
     return this.service.listAuditLogs(query);
   }
 }

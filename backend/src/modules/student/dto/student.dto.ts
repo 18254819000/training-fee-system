@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsIn, IsNotEmpty, IsOptional, IsString, MaxLength, Matches } from 'class-validator';
+import { PaginationDto } from '../../../common/dto/pagination.dto';
 
 export class CreateStudentDto {
   @ApiProperty({ example: '张三' })
@@ -47,3 +48,17 @@ export class CreateImportJobDto {
 // Excel/CSV 模板列：姓名*, 校区编码, 班级/年级, 家长手机号, 内部学号
 // （与前端 CSV 模板列一致；上传时未指定 campus_id 则按行读取校区编码）
 export const IMPORT_TEMPLATE_HEADERS = ['姓名*', '校区编码', '班级/年级', '家长手机号', '内部学号'];
+
+export class StudentQueryDto extends PaginationDto {
+  @ApiPropertyOptional({ description: '校区 ID' })
+  @IsOptional() @IsString()
+  campus_id?: string;
+
+  @ApiPropertyOptional({ description: '状态' })
+  @IsOptional() @IsString()
+  status?: string;
+
+  @ApiPropertyOptional({ description: '关键词（姓名/学号）' })
+  @IsOptional() @IsString()
+  keyword?: string;
+}

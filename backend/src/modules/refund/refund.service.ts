@@ -9,6 +9,7 @@ import { IdempotencyService } from '../../common/idempotency/idempotency.service
 import { AuditService } from '../audit/audit.service';
 import { WechatPayService } from '../wechat-pay/wechat-pay.service';
 import { AdminUserInfo, StudentSessionInfo } from '../../common/types';
+import { RefundQueryDto } from './dto/refund-query.dto';
 
 // 退款服务：仅全额退款、防重申请、提交微信、状态同步
 // 铁律：
@@ -169,10 +170,10 @@ export class RefundService {
 
   async list(
     user: AdminUserInfo,
-    query: { page?: number; page_size?: number; status?: string; campus_id?: string },
+    query: RefundQueryDto,
   ) {
     const page = query.page || 1;
-    const pageSize = Math.min(query.page_size || 20, 100);
+    const pageSize = Math.min(query.pageSize || 20, 100);
     const where: any = {};
     const scopeFilter = this.scope.scopeFilter(user);
     if (query.campus_id) {

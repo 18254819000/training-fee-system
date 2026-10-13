@@ -2,14 +2,13 @@ import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@ne
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CourseService } from './course.service';
 import {
-  CloseCampusPriceDto, CreateCampusPriceDto, CreateCourseDto, CreateFeeItemDto,
-  UpdateCourseDto, UpdateFeeItemDto,
+  CampusPriceQueryDto, CloseCampusPriceDto, CourseQueryDto, CreateCampusPriceDto, CreateCourseDto, CreateFeeItemDto,
+  FeeItemQueryDto, UpdateCourseDto, UpdateFeeItemDto,
 } from './dto/course.dto';
 import { AdminJwtGuard } from '../../common/guards/admin-jwt.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Permissions } from '../../common/decorators/auth.decorators';
 import { ClientIp, CurrentUser, RequestId } from '../../common/decorators/request.decorators';
-import { PaginationDto } from '../../common/dto/pagination.dto';
 import { AdminUserInfo, PERM } from '../../common/types';
 
 @ApiTags('管理端-课程与收费项目')
@@ -22,7 +21,7 @@ export class CourseController {
   @Get('admin/courses')
   @Permissions(PERM.FEE_ITEM_READ)
   @ApiOperation({ summary: '课程列表' })
-  listCourses(@Query() query: PaginationDto & { status?: string; keyword?: string }) {
+  listCourses(@Query() query: CourseQueryDto) {
     return this.service.listCourses(query);
   }
 
@@ -49,7 +48,7 @@ export class CourseController {
   @Get('admin/fee-items')
   @Permissions(PERM.FEE_ITEM_READ)
   @ApiOperation({ summary: '收费项目列表' })
-  listFeeItems(@Query() query: PaginationDto & { status?: string; keyword?: string; course_id?: string }) {
+  listFeeItems(@Query() query: FeeItemQueryDto) {
     return this.service.listFeeItems(query);
   }
 
@@ -78,7 +77,7 @@ export class CourseController {
   @ApiOperation({ summary: '校区价格列表' })
   listCampusPrices(
     @CurrentUser() user: AdminUserInfo,
-    @Query() query: PaginationDto & { fee_item_id?: string; campus_id?: string },
+    @Query() query: CampusPriceQueryDto,
   ) {
     return this.service.listCampusPrices(user, query);
   }

@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsArray, IsDateString, IsIn, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { PaginationDto } from '../../../common/dto/pagination.dto';
 
 export class BatchIssueDto {
   @ApiProperty({ description: '学生 ID 列表', type: [String] })
@@ -12,7 +13,7 @@ export class BatchIssueDto {
   expires_at!: string;
 }
 
-export class LoginCodeQueryDto {
+export class LoginCodeQueryDto extends PaginationDto {
   @ApiPropertyOptional() @IsOptional() @IsString() student_id?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() campus_id?: string;
   @ApiPropertyOptional({ enum: ['valid', 'used', 'revoked', 'expired'] })

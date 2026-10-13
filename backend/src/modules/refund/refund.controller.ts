@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Headers, Param, Post, Query, UseGuards} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags} from '@nestjs/swagger';
 import { RefundService} from './refund.service';
+import { RefundQueryDto } from './dto/refund-query.dto';
 import { AdminJwtGuard} from '../../common/guards/admin-jwt.guard';
 import { RolesGuard} from '../../common/guards/roles.guard';
 import { StudentSessionGuard} from '../../common/guards/student-session.guard';
@@ -19,7 +20,7 @@ constructor(private readonly service: RefundService) {}
 @Get()
 @Permissions(PERM.REFUND_APPLY)
 @ApiOperation({ summary: '退款单列表'})
-list(@CurrentUser() user: AdminUserInfo, @Query() query: PaginationDto & Record<string, any>) {
+list(@CurrentUser() user: AdminUserInfo, @Query() query: RefundQueryDto) {
 return this.service.list(user, query);
 }
 
