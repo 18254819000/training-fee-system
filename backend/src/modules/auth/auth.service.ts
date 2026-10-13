@@ -148,11 +148,10 @@ export class AuthService {
     }
 
     // 生成一次性兑换凭证（10 分钟有效），下一步 bind 消费
-    const exchangeToken = this.crypto.randomHex(32);
-    await this.redis.set(
-      `exchange:${exchangeToken}`,
-      JSON.stringify({ loginCodeId: record.id, studentId: record.student_id }),
-      600,
+    // 使用无状态 JWT（不依赖 Redis/内存，多实例/重启不丢失；一次性由 DB 的 used_at 保证）
+    const exchangeToken = await this.jwt.signAsync(
+      { loginCodeId: record.id, studentId: record.student_id, purpose: 'login-code-exchange' },
+      { expiresIn: '10m' },
     );
 
     await this.audit.log({
@@ -177,12 +176,18 @@ export class AuthService {
     dto: BindDto, existingSessionToken: string | null,
     res: Response, ip: string, requestId: string,
   ) {
-    const raw = await this.redis.get(`exchange:${dto.exchange_token}`);
-    if (!raw) {
+    let loginCodeId: string;
+    let studentId: string;
+    try {
+      const payload = await this.jwt.verifyAsync(dto.exchange_token);
+      if (payload.purpose !== 'login-code-exchange' || !payload.loginCodeId || !payload.studentId) {
+        throw new Error('bad purpose');
+      }
+      loginCodeId = payload.loginCodeId;
+      studentId = payload.studentId;
+    } catch {
       throw new BadRequestException({ code: 'ERR_INVALID_EXCHANGE_TOKEN', message: '兑换已过期，请重新输入登录码' });
     }
-    await this.redis.del(`exchange:${dto.exchange_token}`); // 一次性消费
-    const { loginCodeId, studentId } = JSON.parse(raw) as { loginCodeId: string; studentId: string };
 
     // 事务：复验登录码状态 → 标记已使用 → 撤销该学生其他未用码（防一码多发）
     await this.prisma.$transaction(async (tx) => {

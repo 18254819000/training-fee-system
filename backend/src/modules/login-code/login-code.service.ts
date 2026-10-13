@@ -56,8 +56,9 @@ export class LoginCodeService {
     // 返回状态摘要，不返回任何可用作凭证的值
     const mapped = items.map((c) => ({
       id: c.id,
-      student: c.student,
-      state: this.stateOf(c),
+      student_name: c.student?.name ?? null,
+      student_no: c.student?.student_no ?? null,
+      status: this.stateOf(c) === 'valid' ? 'active' : this.stateOf(c),
       expires_at: c.expires_at,
       used_at: c.used_at,
       revoked_at: c.revoked_at,
