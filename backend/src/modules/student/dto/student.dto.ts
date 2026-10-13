@@ -7,9 +7,9 @@ export class CreateStudentDto {
   @IsString() @IsNotEmpty() @MaxLength(100)
   name!: string;
 
-  @ApiProperty({ example: 'BJ-HD', description: '校区编码' })
-  @IsString() @IsNotEmpty() @MaxLength(32)
-  campus_code!: string;
+  @ApiProperty({ description: '校区 ID' })
+  @IsString() @IsNotEmpty()
+  campus_id!: string;
 
   @ApiPropertyOptional({ example: '2026-001' })
   @IsOptional() @IsString() @MaxLength(64)

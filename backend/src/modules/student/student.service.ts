@@ -78,7 +78,7 @@ export class StudentService {
   }
 
   async create(user: AdminUserInfo, dto: CreateStudentDto, requestId: string, ip: string) {
-    const campus = await this.requireActiveCampusByCode(dto.campus_code);
+    const campus = await this.requireActiveCampusById(dto.campus_id);
     this.scope.assertCampus(user, campus.id, '校区');
     try {
       const student = await this.prisma.student.create({
@@ -127,6 +127,14 @@ export class StudentService {
       }
       throw e;
     }
+  }
+
+  private async requireActiveCampusById(id: string) {
+    const campus = await this.prisma.campus.findUnique({ where: { id } });
+    if (!campus || campus.status !== 'active') {
+      throw new BadRequestException({ code: 'ERR_CAMPUS_INVALID', message: '校区无效或已停用' });
+    }
+    return campus;
   }
 
   private async requireActiveCampusByCode(code: string) {
