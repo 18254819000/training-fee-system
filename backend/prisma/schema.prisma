@@ -111,7 +111,8 @@ model Campus {
   created_at    DateTime     @default(now())
   updated_at    DateTime     @updatedAt
 
-  fee_period_campuses FeePeriodCampus[]
+  fee_periods          FeePeriod[]
+  fee_items             FeeItem[]
   students            Student[]
   invoices            Invoice[]
   admin_user_campuses AdminUserCampus[]
@@ -120,12 +121,15 @@ model Campus {
   @@map("campuses")
 }
 
-// ─── 收费期 ───
+// ─── 收费期（只绑定单个校区） ───
 
 model FeePeriod {
   id         String          @id @default(cuid())
   code       String          @unique @db.VarChar(32)
   name       String          @db.VarChar(100)
+  // 所属校区（单个收费期只属于一个校区）
+  campus_id  String
+  campus     Campus          @relation(fields: [campus_id], references: [id], onDelete: Restrict)
   start_date DateTime        @db.Date
   end_date   DateTime        @db.Date
   status     FeePeriodStatus @default(draft)
@@ -133,22 +137,12 @@ model FeePeriod {
   created_at DateTime        @default(now())
   updated_at DateTime        @updatedAt
 
-  fee_period_campuses FeePeriodCampus[]
   invoices            Invoice[]
   // 本期适用的收费项目（多对多）
   fee_item_periods  FeeItemPeriod[]
 
+  @@index([campus_id])
   @@map("fee_periods")
-}
-
-model FeePeriodCampus {
-  fee_period_id String
-  campus_id     String
-  fee_period    FeePeriod @relation(fields: [fee_period_id], references: [id], onDelete: Cascade)
-  campus        Campus    @relation(fields: [campus_id], references: [id], onDelete: Cascade)
-
-  @@id([fee_period_id, campus_id])
-  @@map("fee_period_campuses")
 }
 
 // ─── 学生 ───
@@ -237,7 +231,7 @@ model StudentSession {
   @@map("student_sessions")
 }
 
-// ─── 课程 / 收费项目 / 校区价格 ───
+// ─── 课程 / 收费项目（收费项目直挂校区与价格） ───
 
 model Course {
   id          String       @id @default(cuid())
@@ -260,17 +254,22 @@ model FeeItem {
   code        String       @unique @db.VarChar(32)
   name        String       @db.VarChar(100)
   description String?      @db.Text
+  // 所属校区：一个收费项目只属于一个校区（新增时直接选择）
+  campus_id   String
+  campus      Campus       @relation(fields: [campus_id], references: [id], onDelete: Restrict)
+  // 价格（分）：直接挂在收费项目上，新增时直接输入
+  amount_fen  BigInt
   status      CampusStatus @default(active)
   created_at  DateTime     @default(now())
   updated_at  DateTime     @updatedAt
 
-  campus_fee_prices CampusFeePrice[]
   invoice_items     InvoiceItem[]
-  // 适用的收费期（多对多）
+  // 适用的收费期（多对多；绑定的收费期必须属于同一校区）
   fee_item_periods  FeeItemPeriod[]
   // 绑定该项目的学生
   students          Student[]
 
+  @@index([campus_id])
   @@map("fee_items")
 }
 
@@ -285,22 +284,6 @@ model FeeItemPeriod {
 
   @@id([fee_item_id, fee_period_id])
   @@map("fee_item_periods")
-}
-
-model CampusFeePrice {
-  id            String    @id @default(cuid())
-  fee_item_id   String
-  fee_item      FeeItem   @relation(fields: [fee_item_id], references: [id], onDelete: Restrict)
-  campus_id     String    @db.VarChar(64)
-  amount_fen    BigInt
-  effective_from DateTime @db.Date
-  effective_to   DateTime? @db.Date
-  created_by    String?
-  created_at    DateTime  @default(now())
-
-  // 同一项目+校区+有效期重叠由业务层事务校验；此处建索引辅助查询
-  @@index([fee_item_id, campus_id, effective_from, effective_to])
-  @@map("campus_fee_prices")
 }
 
 // ─── 账单 ───

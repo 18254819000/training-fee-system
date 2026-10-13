@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsArray, IsIn, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsIn, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class CreateFeePeriodDto {
   @ApiProperty({ example: 'FP2026A' })
@@ -24,11 +24,10 @@ export class CreateFeePeriodDto {
   @IsNotEmpty()
   end_date!: string;
 
-  @ApiPropertyOptional({ description: '适用校区 ID 列表；为空表示全部校区', type: [String] })
-  @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  campus_ids?: string[];
+  @ApiProperty({ description: '所属校区 ID（收费期只绑定单个校区）' })
+  @IsString()
+  @IsNotEmpty()
+  campus_id!: string;
 }
 
 export class UpdateFeePeriodDto {
@@ -41,11 +40,13 @@ export class UpdateFeePeriodDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(100)
   start_date?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(100)
   end_date?: string;
 
   @ApiPropertyOptional({ enum: ['draft', 'open', 'closed'], description: '只允许 draft→open→closed 单向流转' })
@@ -53,9 +54,8 @@ export class UpdateFeePeriodDto {
   @IsIn(['draft', 'open', 'closed'])
   status?: 'draft' | 'open' | 'closed';
 
-  @ApiPropertyOptional({ type: [String] })
+  @ApiPropertyOptional({ description: '所属校区 ID（仅无账单且无收费项目绑定时可变更）' })
   @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  campus_ids?: string[];
+  @IsString()
+  campus_id?: string;
 }

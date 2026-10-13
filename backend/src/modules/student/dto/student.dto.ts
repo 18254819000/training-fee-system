@@ -19,13 +19,13 @@ export class CreateStudentDto {
   @IsOptional() @IsString() @MaxLength(100)
   grade_or_class?: string;
 
-  @ApiPropertyOptional({ example: '13800001111', description: '家长手机号（可选，需明确用途）' })
-  @IsOptional() @IsString() @Matches(/^1[3-9]\d{9}$/, { message: '手机号格式不正确' })
-  guardian_phone?: string;
+  @ApiProperty({ example: '13800001111', description: '家长手机号（必填：学生端手机号登录凭证）' })
+  @IsString() @IsNotEmpty() @Matches(/^1[3-9]\d{9}$/, { message: '手机号格式不正确' })
+  guardian_phone!: string;
 
-  @ApiPropertyOptional({ description: '绑定的收费项目 ID（报读课程对应的收费项）' })
-  @IsOptional() @IsString()
-  fee_item_id?: string;
+  @ApiProperty({ description: '绑定的收费项目 ID（必填；须属于学生所在校区）' })
+  @IsString() @IsNotEmpty()
+  fee_item_id!: string;
 }
 
 export class UpdateStudentDto {
@@ -52,10 +52,10 @@ export class CreateImportJobDto {
   fee_period_id?: string;
 }
 
-// Excel/CSV 模板列：姓名*, 校区编码, 班级/年级, 家长手机号, 内部学号*, 收费项目编码
+// Excel/CSV 模板列：姓名*, 校区编码, 班级/年级, 家长手机号*, 内部学号*, 收费项目编码*
 // （与前端 CSV 模板列一致；上传时未指定 campus_id 则按行读取校区编码）
-// 内部学号必填：作为"校区+学号"去重唯一键
-export const IMPORT_TEMPLATE_HEADERS = ['姓名*', '校区编码', '班级/年级', '家长手机号', '内部学号*', '收费项目编码'];
+// 内部学号必填：作为"校区+学号"去重唯一键；手机号/收费项目必填：登录与账单生成依赖
+export const IMPORT_TEMPLATE_HEADERS = ['姓名*', '校区编码', '班级/年级', '家长手机号*', '内部学号*', '收费项目编码*'];
 
 export class StudentQueryDto extends PaginationDto {
   @ApiPropertyOptional({ description: '校区 ID' })

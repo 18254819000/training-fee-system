@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsArray, IsDateString, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { IsArray, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 import { PaginationDto } from '../../../common/dto/pagination.dto';
 
 export class CreateCourseDto {
@@ -19,30 +19,26 @@ export class CreateFeeItemDto {
   @ApiProperty({ example: 'FEE-TUITION' }) @IsString() @IsNotEmpty() @MaxLength(32) code!: string;
   @ApiProperty({ example: '学费' }) @IsString() @IsNotEmpty() @MaxLength(100) name!: string;
   @ApiPropertyOptional() @IsOptional() @IsString() course_id?: string;
+  @ApiProperty({ description: '所属校区 ID（收费项目只属于一个校区）' })
+  @IsString() @IsNotEmpty()
+  campus_id!: string;
+  @ApiProperty({ example: 128000, description: '价格（分），必须为正整数' })
+  @IsInt() @Min(1)
+  amount_fen!: number;
   @ApiPropertyOptional() @IsOptional() @IsString() description?: string;
+  @ApiPropertyOptional({ description: '绑定的收费期 ID 列表（须属于同一校区）', type: [String] })
+  @IsOptional() @IsArray() @IsString({ each: true })
+  fee_period_ids?: string[];
 }
 
 export class UpdateFeeItemDto {
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(100) name?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() description?: string;
+  @ApiPropertyOptional({ example: 128000, description: '价格（分），必须为正整数' })
+  @IsOptional() @IsInt() @Min(1)
+  amount_fen?: number;
   @ApiPropertyOptional({ enum: ['active', 'inactive'] })
   @IsOptional() @IsIn(['active', 'inactive']) status?: 'active' | 'inactive';
-}
-
-export class CreateCampusPriceDto {
-  @ApiProperty({ description: '收费项目 ID' }) @IsString() @IsNotEmpty() fee_item_id!: string;
-  @ApiProperty({ description: '校区 ID' }) @IsString() @IsNotEmpty() campus_id!: string;
-  @ApiProperty({ example: 128000, description: '金额（分），必须为整数' })
-  @IsInt() @Min(0) amount_fen!: number;
-  @ApiProperty({ example: '2026-09-01', description: '生效日期（含）' })
-  @IsDateString() effective_from!: string;
-  @ApiPropertyOptional({ example: '2026-12-31', description: '失效日期（含），空=长期有效' })
-  @IsOptional() @IsDateString() effective_to?: string;
-}
-
-export class CloseCampusPriceDto {
-  @ApiProperty({ example: '2026-12-31', description: '将失效日期设为该日（含）' })
-  @IsDateString() effective_to!: string;
 }
 
 /** 收费项目绑定收费期：全量替换该项目适用的收费期 */
@@ -61,9 +57,5 @@ export class FeeItemQueryDto extends PaginationDto {
   @ApiPropertyOptional() @IsOptional() @IsString() status?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() keyword?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() course_id?: string;
-}
-
-export class CampusPriceQueryDto extends PaginationDto {
-  @ApiPropertyOptional() @IsOptional() @IsString() fee_item_id?: string;
-  @ApiPropertyOptional() @IsOptional() @IsString() campus_id?: string;
+  @ApiPropertyOptional({ description: '所属校区 ID' }) @IsOptional() @IsString() campus_id?: string;
 }

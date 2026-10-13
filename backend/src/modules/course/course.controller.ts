@@ -1,8 +1,8 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CourseService } from './course.service';
 import {
-  CampusPriceQueryDto, CloseCampusPriceDto, CourseQueryDto, CreateCampusPriceDto, CreateCourseDto, CreateFeeItemDto,
+  CourseQueryDto, CreateCourseDto, CreateFeeItemDto,
   FeeItemQueryDto, SetFeeItemPeriodsDto, UpdateCourseDto, UpdateFeeItemDto,
 } from './dto/course.dto';
 import { AdminJwtGuard } from '../../common/guards/admin-jwt.guard';
@@ -48,13 +48,13 @@ export class CourseController {
   @Get('admin/fee-items')
   @Permissions(PERM.FEE_ITEM_READ)
   @ApiOperation({ summary: '收费项目列表' })
-  listFeeItems(@Query() query: FeeItemQueryDto) {
-    return this.service.listFeeItems(query);
+  listFeeItems(@CurrentUser() user: AdminUserInfo, @Query() query: FeeItemQueryDto) {
+    return this.service.listFeeItems(user, query);
   }
 
   @Post('admin/fee-items')
   @Permissions(PERM.FEE_ITEM_WRITE)
-  @ApiOperation({ summary: '新增收费项目' })
+  @ApiOperation({ summary: '新增收费项目（直选校区、直接输入价格，可同时绑定收费期）' })
   createFeeItem(
     @CurrentUser() user: AdminUserInfo, @Body() dto: CreateFeeItemDto,
     @RequestId() requestId: string, @ClientIp() ip: string,
@@ -72,6 +72,16 @@ export class CourseController {
     return this.service.updateFeeItem(user, id, dto, requestId, ip);
   }
 
+  @Delete('admin/fee-items/:id')
+  @Permissions(PERM.FEE_ITEM_WRITE)
+  @ApiOperation({ summary: '删除收费项目（有学生绑定或账单引用时禁止）' })
+  deleteFeeItem(
+    @CurrentUser() user: AdminUserInfo, @Param('id') id: string,
+    @RequestId() requestId: string, @ClientIp() ip: string,
+  ) {
+    return this.service.deleteFeeItem(user, id, requestId, ip);
+  }
+
   @Get('admin/fee-items/:id/periods')
   @Permissions(PERM.FEE_ITEM_READ)
   @ApiOperation({ summary: '查询收费项目已绑定的收费期' })
@@ -81,41 +91,11 @@ export class CourseController {
 
   @Post('admin/fee-items/:id/periods')
   @Permissions(PERM.FEE_ITEM_WRITE)
-  @ApiOperation({ summary: '设置收费项目的适用收费期（全量替换）' })
+  @ApiOperation({ summary: '设置收费项目的适用收费期（全量替换，须与项目同校区）' })
   setFeeItemPeriods(
     @CurrentUser() user: AdminUserInfo, @Param('id') id: string, @Body() dto: SetFeeItemPeriodsDto,
     @RequestId() requestId: string, @ClientIp() ip: string,
   ) {
     return this.service.setFeeItemPeriods(user, id, dto, requestId, ip);
-  }
-
-  @Get('admin/campus-fee-prices')
-  @Permissions(PERM.FEE_ITEM_READ)
-  @ApiOperation({ summary: '校区价格列表' })
-  listCampusPrices(
-    @CurrentUser() user: AdminUserInfo,
-    @Query() query: CampusPriceQueryDto,
-  ) {
-    return this.service.listCampusPrices(user, query);
-  }
-
-  @Post('admin/campus-fee-prices')
-  @Permissions(PERM.FEE_ITEM_WRITE)
-  @ApiOperation({ summary: '新增校区价格（有效期不可重叠）' })
-  createCampusPrice(
-    @CurrentUser() user: AdminUserInfo, @Body() dto: CreateCampusPriceDto,
-    @RequestId() requestId: string, @ClientIp() ip: string,
-  ) {
-    return this.service.createCampusPrice(user, dto, requestId, ip);
-  }
-
-  @Patch('admin/campus-fee-prices/:id/close')
-  @Permissions(PERM.FEE_ITEM_WRITE)
-  @ApiOperation({ summary: '关闭价格（设失效日期，不物理删除）' })
-  closeCampusPrice(
-    @CurrentUser() user: AdminUserInfo, @Param('id') id: string, @Body() dto: CloseCampusPriceDto,
-    @RequestId() requestId: string, @ClientIp() ip: string,
-  ) {
-    return this.service.closeCampusPrice(user, id, dto, requestId, ip);
   }
 }

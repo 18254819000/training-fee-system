@@ -34,13 +34,10 @@ export class StudentPortalService {
     return this.prisma.feePeriod.findMany({
       where: {
         status: { in: ['open', 'closed'] },
-        OR: [
-          { fee_period_campuses: { some: { campus_id: { in: campusIds } } } },
-          { fee_period_campuses: { none: {} } }, // 未绑定校区 = 全校区可见
-        ],
+        campus_id: { in: campusIds },
       },
       include: {
-        fee_period_campuses: { include: { campus: { select: { id: true, name: true } } } },
+        campus: { select: { id: true, name: true } },
       },
       orderBy: { created_at: 'desc' },
     });

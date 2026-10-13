@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { FeePeriodService } from './fee-period.service';
 import { CreateFeePeriodDto, UpdateFeePeriodDto } from './dto/fee-period.dto';
@@ -19,7 +19,10 @@ export class FeePeriodController {
   @Get()
   @Permissions(PERM.FEE_PERIOD_READ)
   @ApiOperation({ summary: '收费期列表' })
-  list(@CurrentUser() user: AdminUserInfo, @Query() query: PaginationDto) {
+  list(
+    @CurrentUser() user: AdminUserInfo,
+    @Query() query: PaginationDto & { status?: string; campus_id?: string },
+  ) {
     return this.service.list(user, query);
   }
 
@@ -53,5 +56,24 @@ export class FeePeriodController {
     @ClientIp() ip: string,
   ) {
     return this.service.update(user, id, dto, requestId, ip);
+  }
+
+  @Delete(':id')
+  @Permissions(PERM.FEE_PERIOD_WRITE)
+  @ApiOperation({ summary: '删除收费期（已有账单时禁止）' })
+  remove(
+    @CurrentUser() user: AdminUserInfo,
+    @Param('id') id: string,
+    @RequestId() requestId: string,
+    @ClientIp() ip: string,
+  ) {
+    return this.service.remove(user, id, requestId, ip);
+  }
+
+  @Get(':id/fee-items')
+  @Permissions(PERM.FEE_PERIOD_READ)
+  @ApiOperation({ summary: '查询收费期绑定的收费项目（账单生成用）' })
+  listBoundFeeItems(@CurrentUser() user: AdminUserInfo, @Param('id') id: string) {
+    return this.service.listBoundFeeItems(user, id);
   }
 }

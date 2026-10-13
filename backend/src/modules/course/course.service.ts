@@ -6,15 +6,15 @@ import { CampusScopeService } from '../../common/guards/campus-scope.service';
 import { AuditService } from '../audit/audit.service';
 import { AdminUserInfo } from '../../common/types';
 import { paginate } from '../../common/dto/pagination.dto';
-import { CampusPriceQueryDto, CourseQueryDto, FeeItemQueryDto } from './dto/course.dto';
+import { CourseQueryDto, FeeItemQueryDto } from './dto/course.dto';
 import {
-  CloseCampusPriceDto, CreateCampusPriceDto, CreateCourseDto, CreateFeeItemDto,
+  CreateCourseDto, CreateFeeItemDto,
   SetFeeItemPeriodsDto, UpdateCourseDto, UpdateFeeItemDto,
 } from './dto/course.dto';
 
-// 课程 / 收费项目 / 校区价格服务
-// 铁律：调价只新增价格记录（设旧记录失效期），已被账单引用的价格不物理删除；
-// 同一项目+校区+有效期不允许重叠（验收 F-09）
+// 课程 / 收费项目服务
+// 新模型：收费项目直挂单个校区与价格；收费项目 ↔ 收费期多对多（须同校区）；
+// 学生绑定收费项目；账单按 校区 → 收费期 → 收费项目 生成，金额取项目价格快照。
 @Injectable()
 export class CourseService {
   constructor(
@@ -59,52 +59,77 @@ export class CourseService {
 
   // ─── 收费项目 ───
 
-  async listFeeItems(query: FeeItemQueryDto) {
+  async listFeeItems(user: AdminUserInfo, query: FeeItemQueryDto) {
     const page = query.page || 1;
     const pageSize = query.pageSize || 20;
     const where: any = {};
     if (query.status) where.status = query.status;
     if (query.course_id) where.course_id = query.course_id;
     if (query.keyword) where.OR = [{ name: { contains: query.keyword } }, { code: { contains: query.keyword } }];
-    const now = new Date();
-    const [total, items, campuses] = await Promise.all([
+    const scopeFilter = this.scope.scopeFilter(user);
+    if (query.campus_id) {
+      this.scope.assertCampus(user, query.campus_id, '校区');
+      where.campus_id = query.campus_id;
+    } else if (scopeFilter) {
+      where.campus_id = scopeFilter;
+    }
+    const [total, items] = await Promise.all([
       this.prisma.feeItem.count({ where }),
       this.prisma.feeItem.findMany({
         where,
         include: {
-          course: true,
-          campus_fee_prices: {
-            where: { effective_from: { lte: now }, OR: [{ effective_to: null }, { effective_to: { gte: now } }] },
-            orderBy: { effective_from: 'desc' },
+          course: { select: { id: true, code: true, name: true } },
+          campus: { select: { id: true, code: true, name: true } },
+          fee_item_periods: {
+            include: { fee_period: { select: { id: true, code: true, name: true, status: true } } },
+            orderBy: { fee_period: { start_date: 'desc' } },
           },
         },
         orderBy: { created_at: 'desc' }, skip: (page - 1) * pageSize, take: pageSize,
       }),
-      this.prisma.campus.findMany({ select: { id: true, name: true } }),
     ]);
-    const campusName = new Map(campuses.map((c) => [c.id, c.name]));
-    // 每个校区只保留一条当前有效价格
-    const mapped = items.map((it: any) => {
-      const seen = new Set<string>();
-      const prices = (it.campus_fee_prices || []).filter((p: any) => {
-        if (seen.has(p.campus_id)) return false;
-        seen.add(p.campus_id);
-        return true;
-      }).map((p: any) => ({
-        campus_id: p.campus_id,
-        campus_name: campusName.get(p.campus_id) ?? p.campus_id,
-        amount_fen: Number(p.amount_fen),
-      }));
-      const { campus_fee_prices, ...rest } = it;
-      return { ...rest, current_prices: prices };
-    });
+    const mapped = items.map((it: any) => ({
+      ...it,
+      /* amount_fen 由拦截器转为 Number */
+      fee_periods: (it.fee_item_periods || []).map((fp: any) => fp.fee_period),
+      fee_item_periods: undefined,
+    }));
     return paginate(mapped, total, page, pageSize);
   }
 
   async createFeeItem(user: AdminUserInfo, dto: CreateFeeItemDto, requestId: string, ip: string) {
+    const campus = await this.prisma.campus.findUnique({ where: { id: dto.campus_id } });
+    if (!campus || campus.status !== 'active') {
+      throw new BadRequestException({ code: 'ERR_CAMPUS_INVALID', message: '所属校区无效或已停用' });
+    }
+    this.scope.assertCampus(user, campus.id, '校区');
+    if (dto.course_id) {
+      const course = await this.prisma.course.findUnique({ where: { id: dto.course_id } });
+      if (!course) throw new BadRequestException({ code: 'ERR_COURSE_INVALID', message: '关联课程不存在' });
+    }
+    // 绑定的收费期必须存在且属于同一校区
+    const periodIds = Array.from(new Set((dto.fee_period_ids || []).filter(Boolean)));
+    await this.assertPeriodsInCampus(periodIds, campus.id);
+
     try {
-      const item = await this.prisma.feeItem.create({ data: { ...dto } });
-      await this.audit.log({ actorType: 'admin', actorId: user.id, action: 'fee-item.create', resourceType: 'fee_item', resourceId: item.id, result: 'success', requestId, ip, metadata: { code: item.code } });
+      const item = await this.prisma.feeItem.create({
+        data: {
+          code: dto.code,
+          name: dto.name,
+          course_id: dto.course_id || null,
+          campus_id: campus.id,
+          amount_fen: BigInt(dto.amount_fen),
+          description: dto.description || null,
+          fee_item_periods: periodIds.length
+            ? { create: periodIds.map((fee_period_id) => ({ fee_period_id })) }
+            : undefined,
+        },
+      });
+      await this.audit.log({
+        actorType: 'admin', actorId: user.id, action: 'fee-item.create', resourceType: 'fee_item',
+        resourceId: item.id, result: 'success', requestId, ip,
+        metadata: { code: item.code, campus_id: campus.id, amount_fen: dto.amount_fen },
+      });
       return item;
     } catch (e: any) {
       if (e?.code === 'P2002') throw new ConflictException({ code: 'ERR_DUPLICATE_CODE', message: '收费项目编码已存在' });
@@ -115,10 +140,41 @@ export class CourseService {
   async updateFeeItem(user: AdminUserInfo, id: string, dto: UpdateFeeItemDto, requestId: string, ip: string) {
     const item = await this.prisma.feeItem.findUnique({ where: { id } });
     if (!item) throw new NotFoundException({ code: 'ERR_NOT_FOUND', message: '收费项目不存在' });
-    const updated = await this.prisma.feeItem.update({ where: { id }, data: { ...dto } });
-    // 价格调整审计（验收 F-10 要求调价可追溯）
+    this.scope.assertCampus(user, item.campus_id, '校区');
+    // 所属校区创建后不可变更（如需换校区请新建项目）
+    const updated = await this.prisma.feeItem.update({
+      where: { id },
+      data: {
+        ...(dto.name !== undefined ? { name: dto.name } : {}),
+        ...(dto.description !== undefined ? { description: dto.description || null } : {}),
+        ...(dto.amount_fen !== undefined ? { amount_fen: BigInt(dto.amount_fen) } : {}),
+        ...(dto.status ? { status: dto.status } : {}),
+      },
+    });
     await this.audit.log({ actorType: 'admin', actorId: user.id, action: 'fee-item.update', resourceType: 'fee_item', resourceId: id, result: 'success', requestId, ip, metadata: { changes: Object.keys(dto) } });
     return updated;
+  }
+
+  /** 删除收费项目：已有学生绑定或账单明细引用时禁止删除 */
+  async deleteFeeItem(user: AdminUserInfo, id: string, requestId: string, ip: string) {
+    const item = await this.prisma.feeItem.findUnique({
+      where: { id },
+      include: { _count: { select: { students: true, invoice_items: true } } },
+    });
+    if (!item) throw new NotFoundException({ code: 'ERR_NOT_FOUND', message: '收费项目不存在' });
+    this.scope.assertCampus(user, item.campus_id, '校区');
+    if (item._count.students > 0) {
+      throw new BadRequestException({ code: 'ERR_ITEM_HAS_STUDENTS', message: `已有 ${item._count.students} 名学生绑定该收费项目，不可删除` });
+    }
+    if (item._count.invoice_items > 0) {
+      throw new BadRequestException({ code: 'ERR_ITEM_HAS_INVOICES', message: '该收费项目已有账单引用，不可删除' });
+    }
+    await this.prisma.feeItem.delete({ where: { id } });
+    await this.audit.log({
+      actorType: 'admin', actorId: user.id, action: 'fee-item.delete', resourceType: 'fee_item',
+      resourceId: id, result: 'success', requestId, ip, metadata: { code: item.code },
+    });
+    return { id };
   }
 
   // ─── 收费项目 ↔ 收费期绑定 ───
@@ -135,22 +191,17 @@ export class CourseService {
     return rows.map((r) => r.fee_period);
   }
 
-  /** 全量替换收费项目的适用收费期（先删后增，事务保证原子性） */
+  /** 全量替换收费项目的适用收费期（先删后增，事务保证原子性；须与项目同校区） */
   async setFeeItemPeriods(
     user: AdminUserInfo, feeItemId: string, dto: SetFeeItemPeriodsDto,
     requestId: string, ip: string,
   ) {
     const item = await this.prisma.feeItem.findUnique({ where: { id: feeItemId } });
     if (!item) throw new NotFoundException({ code: 'ERR_NOT_FOUND', message: '收费项目不存在' });
+    this.scope.assertCampus(user, item.campus_id, '校区');
     const periodIds = Array.from(new Set((dto.fee_period_ids || []).filter(Boolean)));
-    if (periodIds.length > 0) {
-      const periods = await this.prisma.feePeriod.findMany({
-        where: { id: { in: periodIds } }, select: { id: true },
-      });
-      if (periods.length !== periodIds.length) {
-        throw new BadRequestException({ code: 'ERR_PERIOD_NOT_FOUND', message: '存在无效的收费期 ID' });
-      }
-    }
+    await this.assertPeriodsInCampus(periodIds, item.campus_id);
+
     await this.prisma.$transaction(async (tx) => {
       await tx.feeItemPeriod.deleteMany({ where: { fee_item_id: feeItemId } });
       if (periodIds.length > 0) {
@@ -168,132 +219,22 @@ export class CourseService {
     return this.getFeeItemPeriods(feeItemId);
   }
 
-  // ─── 校区价格 ───
-
-  async listCampusPrices(
-    user: AdminUserInfo,
-    query: CampusPriceQueryDto,
-  ) {
-    const page = query.page || 1;
-    const pageSize = query.pageSize || 20;
-    const where: any = {};
-    if (query.fee_item_id) where.fee_item_id = query.fee_item_id;
-    if (query.campus_id) {
-      this.scope.assertCampus(user, query.campus_id, '校区');
-      where.campus_id = query.campus_id;
-    } else {
-      const sf = this.scope.scopeFilter(user);
-      if (sf) where.campus_id = sf;
-    }
-    const [total, items] = await Promise.all([
-      this.prisma.campusFeePrice.count({ where }),
-      this.prisma.campusFeePrice.findMany({
-        where, include: { fee_item: true }, orderBy: { effective_from: 'desc' },
-        skip: (page - 1) * pageSize, take: pageSize,
-      }),
-    ]);
-    return paginate(items, total, page, pageSize);
-  }
-
-  /** 新增校区价格：同一项目+校区有效期不允许重叠 */
-  async createCampusPrice(user: AdminUserInfo, dto: CreateCampusPriceDto, requestId: string, ip: string) {
-    this.scope.assertCampus(user, dto.campus_id, '校区');
-    const item = await this.prisma.feeItem.findUnique({ where: { id: dto.fee_item_id } });
-    if (!item || item.status !== 'active') {
-      throw new BadRequestException({ code: 'ERR_FEE_ITEM_INVALID', message: '收费项目不存在或已停用' });
-    }
-    const campus = await this.prisma.campus.findUnique({ where: { id: dto.campus_id } });
-    if (!campus || campus.status !== 'active') {
-      throw new BadRequestException({ code: 'ERR_CAMPUS_INVALID', message: '校区无效或已停用' });
-    }
-    const from = new Date(dto.effective_from);
-    const to = dto.effective_to ? new Date(dto.effective_to) : null;
-    if (to && to < from) {
-      throw new BadRequestException({ code: 'ERR_DATE_RANGE', message: '失效日期不得早于生效日期' });
-    }
-
-    // 重叠校验：新区间 [from, to||∞) 与现有任一区间相交即拒绝
-    const existing = await this.prisma.campusFeePrice.findMany({
-      where: { fee_item_id: dto.fee_item_id, campus_id: dto.campus_id },
+  /** 校验收费期存在且全部属于指定校区 */
+  private async assertPeriodsInCampus(periodIds: string[], campusId: string) {
+    if (periodIds.length === 0) return;
+    const periods = await this.prisma.feePeriod.findMany({
+      where: { id: { in: periodIds } },
+      select: { id: true, name: true, campus_id: true },
     });
-    for (const e of existing) {
-      const eFrom = new Date(e.effective_from);
-      const eTo = e.effective_to ? new Date(e.effective_to) : null;
-      const overlap = from <= (eTo || new Date('9999-12-31')) && (to || new Date('9999-12-31')) >= eFrom;
-      if (overlap) {
-        throw new ConflictException({ code: 'ERR_PRICE_OVERLAP', message: '该项目在该校区的有效期存在重叠价格，请先将旧价格设失效' });
-      }
+    if (periods.length !== periodIds.length) {
+      throw new BadRequestException({ code: 'ERR_PERIOD_NOT_FOUND', message: '存在无效的收费期 ID' });
     }
-
-    const price = await this.prisma.campusFeePrice.create({
-      data: {
-        fee_item_id: dto.fee_item_id, campus_id: dto.campus_id,
-        amount_fen: BigInt(dto.amount_fen),
-        effective_from: from, effective_to: to, created_by: user.id,
-      },
-    });
-    await this.audit.log({
-      actorType: 'admin', actorId: user.id, action: 'campus-price.create', resourceType: 'campus_fee_price',
-      resourceId: price.id, result: 'success', requestId, ip,
-      metadata: { fee_item_id: dto.fee_item_id, campus_id: dto.campus_id, amount_fen: dto.amount_fen },
-    });
-    return price;
-  }
-
-  /** 关闭价格（设失效日期），不物理删除 */
-  async closeCampusPrice(user: AdminUserInfo, id: string, dto: CloseCampusPriceDto, requestId: string, ip: string) {
-    const price = await this.prisma.campusFeePrice.findUnique({ where: { id } });
-    if (!price) throw new NotFoundException({ code: 'ERR_NOT_FOUND', message: '价格记录不存在' });
-    this.scope.assertCampus(user, price.campus_id, '校区');
-    const to = new Date(dto.effective_to);
-    if (to < new Date(price.effective_from)) {
-      throw new BadRequestException({ code: 'ERR_DATE_RANGE', message: '失效日期不得早于生效日期' });
+    const mismatch = periods.find((p) => p.campus_id !== campusId);
+    if (mismatch) {
+      throw new BadRequestException({
+        code: 'ERR_PERIOD_CAMPUS_MISMATCH',
+        message: `收费期「${mismatch.name}」不属于该收费项目所在校区，不可绑定`,
+      });
     }
-    const updated = await this.prisma.campusFeePrice.update({ where: { id }, data: { effective_to: to } });
-    await this.audit.log({
-      actorType: 'admin', actorId: user.id, action: 'campus-price.close', resourceType: 'campus_fee_price',
-      resourceId: id, result: 'success', requestId, ip,
-    });
-    return updated;
-  }
-
-  /** 查询某校区某日有效的价格（账单生成/金额核算用） */
-  async getEffectivePrices(campusId: string, atDate: Date) {
-    const prices = await this.prisma.campusFeePrice.findMany({
-      where: {
-        campus_id: campusId,
-        effective_from: { lte: atDate },
-        OR: [{ effective_to: null }, { effective_to: { gte: atDate } }],
-      },
-      include: { fee_item: true },
-    });
-    // 只要项目启用的
-    return prices.filter((p) => p.fee_item.status === 'active');
-  }
-
-  /**
-   * 批量查询多个（校区，收费项目）在某日的有效价格。
-   * 返回 Map，key 为 `${campus_id}::${fee_item_id}`，每个 key 只保留一条
-   * （生效日期最晚的一条）；项目已停用的不返回。
-   */
-  async getEffectivePriceMap(campusIds: string[], feeItemIds: string[], atDate: Date) {
-    if (campusIds.length === 0 || feeItemIds.length === 0) return new Map<string, any>();
-    const prices = await this.prisma.campusFeePrice.findMany({
-      where: {
-        campus_id: { in: campusIds },
-        fee_item_id: { in: feeItemIds },
-        effective_from: { lte: atDate },
-        OR: [{ effective_to: null }, { effective_to: { gte: atDate } }],
-      },
-      include: { fee_item: true },
-      orderBy: { effective_from: 'desc' },
-    });
-    const map = new Map<string, any>();
-    for (const p of prices) {
-      if (p.fee_item.status !== 'active') continue; // 项目已停用：视为无有效价格
-      const key = `${p.campus_id}::${p.fee_item_id}`;
-      if (!map.has(key)) map.set(key, p);
-    }
-    return map;
   }
 }

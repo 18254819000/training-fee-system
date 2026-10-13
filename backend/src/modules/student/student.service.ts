@@ -16,7 +16,7 @@ import { CreateStudentDto, IMPORT_TEMPLATE_HEADERS, StudentQueryDto, UpdateStude
 
 // 学生服务：档案 CRUD + Excel/CSV 导入（上传→解析→预览→确认→错误报告）
 // 个人信息最小化：不收集身份证号；家长手机号加密存储
-// 导入列：姓名*, 校区编码, 班级/年级, 家长手机号, 内部学号*, 收费项目编码
+// 导入列：姓名*, 校区编码, 班级/年级, 家长手机号*, 内部学号*, 收费项目编码*
 // 校区归属：上传时可指定 campus_id（整批归属），否则按行读取"校区编码"列
 @Injectable()
 export class StudentService {
@@ -84,8 +84,8 @@ export class StudentService {
   async create(user: AdminUserInfo, dto: CreateStudentDto, requestId: string, ip: string) {
     const campus = await this.requireActiveCampusById(dto.campus_id);
     this.scope.assertCampus(user, campus.id, '校区');
-    // 绑定的收费项目必须存在且启用
-    if (dto.fee_item_id) await this.requireActiveFeeItem(dto.fee_item_id);
+    // 绑定的收费项目必须存在、启用且属于学生所在校区
+    await this.requireActiveFeeItemInCampus(dto.fee_item_id, campus.id);
     try {
       const student = await this.prisma.student.create({
         data: {
@@ -121,9 +121,9 @@ export class StudentService {
     if (dto.grade_or_class !== undefined) data.grade_or_class = dto.grade_or_class?.trim() || null;
     if (dto.guardian_phone !== undefined) data.guardian_phone = this.crypto.encryptField(dto.guardian_phone);
     if (dto.status !== undefined) data.status = dto.status;
-    // 传 null 表示清空绑定；传值则校验存在且启用
+    // 传 null 表示清空绑定；传值则校验存在、启用且属于学生所在校区
     if (dto.fee_item_id !== undefined) {
-      if (dto.fee_item_id) await this.requireActiveFeeItem(dto.fee_item_id);
+      if (dto.fee_item_id) await this.requireActiveFeeItemInCampus(dto.fee_item_id, student.campus_id);
       data.fee_item_id = dto.fee_item_id || null;
     }
     try {
@@ -157,11 +157,14 @@ export class StudentService {
     return campus;
   }
 
-  /** 校验收费项目存在且启用（学生绑定用） */
-  private async requireActiveFeeItem(id: string) {
+  /** 校验收费项目存在、启用且属于指定校区（学生绑定用） */
+  private async requireActiveFeeItemInCampus(id: string, campusId: string) {
     const item = await this.prisma.feeItem.findUnique({ where: { id } });
     if (!item || item.status !== 'active') {
       throw new BadRequestException({ code: 'ERR_FEE_ITEM_INVALID', message: '收费项目不存在或已停用' });
+    }
+    if (item.campus_id !== campusId) {
+      throw new BadRequestException({ code: 'ERR_FEE_ITEM_CAMPUS_MISMATCH', message: '收费项目不属于该学生所在校区' });
     }
     return item;
   }
@@ -478,16 +481,25 @@ export class StudentService {
         else if (seenKeys.has(key)) errors.push(`本批次学号重复：${r.student_no}`);
         else seenKeys.add(key);
       }
-      if (r.guardian_phone && !phoneRe.test(r.guardian_phone)) errors.push('家长手机号格式不正确');
+      // 家长手机号必填：学生端手机号登录凭证
+      if (!r.guardian_phone) {
+        errors.push('家长手机号必填（学生端登录凭证）');
+      } else if (!phoneRe.test(r.guardian_phone)) {
+        errors.push('家长手机号格式不正确');
+      }
 
-      // 收费项目编码：填了就必须存在且启用
+      // 收费项目编码必填：必须存在、启用且属于本行校区
       let feeItemId: string | null = null;
-      if (r.fee_item_code) {
+      if (!r.fee_item_code) {
+        errors.push('收费项目编码必填');
+      } else {
         const fi = feeItemByCode.get(r.fee_item_code);
         if (!fi) {
           errors.push(`收费项目编码无效：${r.fee_item_code}`);
         } else if (fi.status !== 'active') {
           errors.push(`收费项目已停用：${r.fee_item_code}`);
+        } else if (campusId && fi.campus_id !== campusId) {
+          errors.push(`收费项目不属于该校区：${r.fee_item_code}`);
         } else {
           feeItemId = fi.id;
         }

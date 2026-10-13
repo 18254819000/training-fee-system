@@ -2,16 +2,18 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsArray, IsBoolean, IsIn, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
 import { PaginationDto } from '../../../common/dto/pagination.dto';
 
+/**
+ * 批量生成账单（新链路）：校区 → 收费期 → 收费项目 → 预览 → 生成。
+ * 校区必填；收费项目不传 = 该收费期绑定的全部启用项目。
+ */
 export class GenerateInvoiceDto {
-  @ApiProperty({ description: '收费期 ID' }) @IsString() @IsNotEmpty() fee_period_id!: string;
+  @ApiProperty({ description: '收费期 ID（须为开放状态且属于所选校区）' })
+  @IsString() @IsNotEmpty() fee_period_id!: string;
 
-  @ApiPropertyOptional({ description: '校区 ID（可选；不传则按收费期适用校区自动确定）' })
-  @IsOptional() @IsString() campus_id?: string;
+  @ApiProperty({ description: '校区 ID（必填）' })
+  @IsString() @IsNotEmpty() campus_id!: string;
 
-  @ApiPropertyOptional({ description: '指定学生 ID 列表（可选；不传则为范围内全部在读学生）', type: [String] })
-  @IsOptional() @IsArray() @IsString({ each: true }) student_ids?: string[];
-
-  @ApiPropertyOptional({ description: '进一步限定收费项目 ID 列表（须在本期绑定范围内），空=本期全部绑定项目', type: [String] })
+  @ApiPropertyOptional({ description: '收费项目 ID 列表（须在本期绑定范围内），空=本期全部绑定项目', type: [String] })
   @IsOptional() @IsArray() @IsString({ each: true }) fee_item_ids?: string[];
 
   @ApiPropertyOptional({ description: '幂等键（防重复提交）' })
