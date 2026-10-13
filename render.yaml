@@ -1,0 +1,36 @@
+# 培训学校收费系统 · Render 免费部署蓝图
+# 用法：把本仓库推到 GitHub → Render Dashboard → New → Blueprint → 选择仓库
+#      → 在面板填入 Neon PostgreSQL 的连接串（DATABASE_URL）
+# 免费版说明：每月 750 小时、15 分钟无请求后休眠、唤醒约 30~60 秒；验证功能够用，生产请用付费版。
+# 数据库用 Neon 免费版（Render 自带的免费 PG 30 天过期，不用）。
+# 包管理器：Render 会根据 pnpm-lock.yaml 自动使用 pnpm。
+
+services:
+  - type: web
+    name: training-fee-backend
+    runtime: node
+    plan: free
+    buildCommand: pnpm install && pnpm exec prisma generate && pnpm run build
+    preDeployCommand: pnpm exec prisma migrate deploy
+    startCommand: node dist/main
+    # 首次部署后，用 Neon 的 DATABASE_URL 在本地跑一次种子数据：
+    #   DATABASE_URL="<neon 连接串>" node prisma/seed.ts
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: NODE_ENV
+        value: production
+      - key: WECHAT_PAY_MODE
+        value: mock
+      - key: SESSION_TTL_HOURS
+        value: 72
+      # Render 会自动注入 PORT，无需手动设置
+      - key: DATABASE_URL
+        sync: false # 在 Render 面板填写 Neon PostgreSQL 连接串（带 ?sslmode=require）
+      - key: JWT_SECRET
+        generateValue: true
+      - key: MASTER_KEY
+        generateValue: true
+      - key: LOGIN_CODE_PEPPER
+        generateValue: true
+      # REDIS_URL 不填：后端会自动降级为内存模式（验证期够用）

@@ -1,0 +1,553 @@
+// 培训学校多校区收费系统 · Prisma 数据模型（一期）
+// 约定：金额一律 BIGINT（分）；时间统一 UTC 存储；主键使用 cuid 字符串（对外不暴露自增 ID）
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── 枚举 ───
+
+enum CampusStatus {
+  active
+  inactive
+}
+
+enum FeePeriodStatus {
+  draft
+  open
+  closed
+}
+
+enum StudentStatus {
+  active
+  inactive
+  left
+}
+
+enum GuardianStatus {
+  active
+  disabled
+}
+
+enum InvoiceStatus {
+  pending      // 待支付
+  processing   // 支付处理中
+  paid         // 已支付
+  refunding    // 退款处理中
+  refunded     // 已退款
+  voided       // 已作废
+}
+
+enum PaymentOrderStatus {
+  created
+  pending
+  paid
+  failed
+  closed
+}
+
+enum RefundStatus {
+  created     // 已申请
+  submitted   // 已提交微信
+  success     // 退款成功
+  failed      // 退款失败
+  closed      // 已关闭
+}
+
+enum PaymentAccountEnv {
+  test
+  production
+}
+
+enum PaymentAccountStatus {
+  draft
+  testing
+  active
+  disabled
+}
+
+enum AdminStatus {
+  active
+  disabled
+}
+
+enum ImportJobStatus {
+  uploaded
+  previewed
+  committed
+  failed
+}
+
+enum ExportJobStatus {
+  pending
+  done
+  failed
+}
+
+enum NotifyProcessingStatus {
+  received
+  verified
+  processed
+  duplicate
+  rejected
+}
+
+// ─── 校区 ───
+
+model Campus {
+  id            String       @id @default(cuid())
+  code          String       @unique @db.VarChar(32)
+  name          String       @db.VarChar(100)
+  address       String?      @db.VarChar(255)
+  contact_name  String?      @db.VarChar(80)
+  contact_phone String?      @db.VarChar(32)
+  status        CampusStatus @default(active)
+  remark        String?      @db.VarChar(500)
+  created_at    DateTime     @default(now())
+  updated_at    DateTime     @updatedAt
+
+  fee_period_campuses FeePeriodCampus[]
+  students            Student[]
+  invoices            Invoice[]
+  admin_user_campuses AdminUserCampus[]
+  payment_account_campuses PaymentAccountCampus[]
+
+  @@map("campuses")
+}
+
+// ─── 收费期 ───
+
+model FeePeriod {
+  id         String          @id @default(cuid())
+  code       String          @unique @db.VarChar(32)
+  name       String          @db.VarChar(100)
+  start_date DateTime        @db.Date
+  end_date   DateTime        @db.Date
+  status     FeePeriodStatus @default(draft)
+  created_by String?
+  created_at DateTime        @default(now())
+  updated_at DateTime        @updatedAt
+
+  fee_period_campuses FeePeriodCampus[]
+  invoices            Invoice[]
+
+  @@map("fee_periods")
+}
+
+model FeePeriodCampus {
+  fee_period_id String
+  campus_id     String
+  fee_period    FeePeriod @relation(fields: [fee_period_id], references: [id], onDelete: Cascade)
+  campus        Campus    @relation(fields: [campus_id], references: [id], onDelete: Cascade)
+
+  @@id([fee_period_id, campus_id])
+  @@map("fee_period_campuses")
+}
+
+// ─── 学生 ───
+
+model Student {
+  id              String        @id @default(cuid())
+  student_no      String?       @db.VarChar(64)
+  name            String        @db.VarChar(100)
+  campus_id       String
+  campus          Campus        @relation(fields: [campus_id], references: [id], onDelete: Restrict)
+  grade_or_class  String?       @db.VarChar(100)
+  // 家长手机号（加密存储，应用层 AES-GCM；最小化收集）
+  guardian_phone  String?       @db.Text
+  status          StudentStatus @default(active)
+  created_at      DateTime      @default(now())
+  updated_at      DateTime      @updatedAt
+
+  login_codes       LoginCode[]
+  student_guardians StudentGuardian[]
+  invoices          Invoice[]
+
+  @@unique([campus_id, student_no])
+  @@index([campus_id, status])
+  @@map("students")
+}
+
+// ─── 一次性登录码（只存 HMAC-SHA256 哈希，不存明文） ───
+
+model LoginCode {
+  id              String    @id @default(cuid())
+  student_id      String
+  student         Student   @relation(fields: [student_id], references: [id], onDelete: Cascade)
+  code_hash       String    @unique @db.VarChar(128)
+  expires_at      DateTime
+  used_at         DateTime?
+  revoked_at      DateTime?
+  failed_attempts Int       @default(0)
+  issued_by       String?
+  created_at      DateTime  @default(now())
+
+  @@index([student_id])
+  @@map("login_codes")
+}
+
+// ─── 家长账号与绑定（一期简化：登录码兑换成功后自动建立绑定） ───
+
+model Guardian {
+  id           String         @id @default(cuid())
+  phone        String?        @db.Text // 加密存储，可空
+  wechat_openid String?       @db.Text // 微信 openid（公众号网页授权绑定，JSAPI 支付需要）
+  status       GuardianStatus @default(active)
+  created_at DateTime       @default(now())
+  updated_at DateTime       @updatedAt
+
+  student_guardians StudentGuardian[]
+
+  @@map("guardians")
+}
+
+model StudentGuardian {
+  student_id   String
+  guardian_id  String
+  student      Student   @relation(fields: [student_id], references: [id], onDelete: Cascade)
+  guardian     Guardian  @relation(fields: [guardian_id], references: [id], onDelete: Cascade)
+  relationship String?   @db.VarChar(32)
+  verified_at  DateTime?
+  created_at   DateTime  @default(now())
+
+  @@id([student_id, guardian_id])
+  @@map("student_guardians")
+}
+
+// 学生端匿名会话：一次登录码兑换可绑定多个学生（多孩子家庭分别绑定）
+model StudentSession {
+  id          String   @id @default(cuid())
+  token_hash  String   @unique @db.VarChar(128)
+  student_ids Json // string[]
+  guardian_id String?
+  expires_at  DateTime
+  last_used_at DateTime @default(now())
+  created_at  DateTime  @default(now())
+
+  @@map("student_sessions")
+}
+
+// ─── 课程 / 收费项目 / 校区价格 ───
+
+model Course {
+  id          String       @id @default(cuid())
+  code        String       @unique @db.VarChar(32)
+  name        String       @db.VarChar(100)
+  description String?      @db.Text
+  status      CampusStatus @default(active)
+  created_at  DateTime     @default(now())
+  updated_at  DateTime     @updatedAt
+
+  fee_items FeeItem[]
+
+  @@map("courses")
+}
+
+model FeeItem {
+  id          String       @id @default(cuid())
+  course_id   String?
+  course      Course?      @relation(fields: [course_id], references: [id], onDelete: SetNull)
+  code        String       @unique @db.VarChar(32)
+  name        String       @db.VarChar(100)
+  description String?      @db.Text
+  status      CampusStatus @default(active)
+  created_at  DateTime     @default(now())
+  updated_at  DateTime     @updatedAt
+
+  campus_fee_prices CampusFeePrice[]
+  invoice_items     InvoiceItem[]
+
+  @@map("fee_items")
+}
+
+model CampusFeePrice {
+  id            String    @id @default(cuid())
+  fee_item_id   String
+  fee_item      FeeItem   @relation(fields: [fee_item_id], references: [id], onDelete: Restrict)
+  campus_id     String    @db.VarChar(64)
+  amount_fen    BigInt
+  effective_from DateTime @db.Date
+  effective_to   DateTime? @db.Date
+  created_by    String?
+  created_at    DateTime  @default(now())
+
+  // 同一项目+校区+有效期重叠由业务层事务校验；此处建索引辅助查询
+  @@index([fee_item_id, campus_id, effective_from, effective_to])
+  @@map("campus_fee_prices")
+}
+
+// ─── 账单 ───
+
+model Invoice {
+  id                   String        @id @default(cuid())
+  invoice_no           String        @unique @db.VarChar(40)
+  invoice_type         String        @default("main") @db.VarChar(24) // 主账单 main
+  student_id           String
+  student              Student       @relation(fields: [student_id], references: [id], onDelete: Restrict)
+  campus_id            String
+  campus               Campus        @relation(fields: [campus_id], references: [id], onDelete: Restrict)
+  fee_period_id        String
+  fee_period           FeePeriod     @relation(fields: [fee_period_id], references: [id], onDelete: Restrict)
+  amount_due_fen       BigInt
+  amount_paid_fen      BigInt        @default(0)
+  amount_refunded_fen  BigInt        @default(0)
+  status               InvoiceStatus @default(pending)
+  created_by           String?
+  created_at           DateTime      @default(now())
+  updated_at           DateTime      @updatedAt
+
+  invoice_items  InvoiceItem[]
+  payment_orders PaymentOrder[]
+
+  // 同一学生+收费期+账单类型 防重复生成（数据库兜底，验收 F-11）
+  @@unique([student_id, fee_period_id, invoice_type])
+  @@index([campus_id, fee_period_id, status])
+  @@map("invoices")
+}
+
+model InvoiceItem {
+  id                String   @id @default(cuid())
+  invoice_id        String
+  invoice           Invoice  @relation(fields: [invoice_id], references: [id], onDelete: Cascade)
+  fee_item_id       String?
+  fee_item          FeeItem? @relation(fields: [fee_item_id], references: [id], onDelete: SetNull)
+  item_name_snapshot String  @db.VarChar(100)
+  unit_price_fen    BigInt
+  quantity          Int      @default(1)
+  line_amount_fen   BigInt
+  created_at        DateTime @default(now())
+
+  @@index([invoice_id])
+  @@map("invoice_items")
+}
+
+// ─── 支付订单 ───
+
+model PaymentOrder {
+  id                  String             @id @default(cuid())
+  out_trade_no        String             @unique @db.VarChar(64)
+  invoice_id          String
+  invoice             Invoice            @relation(fields: [invoice_id], references: [id], onDelete: Restrict)
+  payment_account_id  String
+  payment_account     PaymentAccount     @relation(fields: [payment_account_id], references: [id], onDelete: Restrict)
+  channel             String             @default("WECHAT") @db.VarChar(16)
+  amount_fen          BigInt
+  status              PaymentOrderStatus @default(created)
+  wechat_transaction_id String?          @unique @db.VarChar(64)
+  prepay_id           String?            @db.VarChar(128)
+  paid_at             DateTime?
+  last_query_at       DateTime?
+  created_at          DateTime           @default(now())
+  updated_at          DateTime           @updatedAt
+
+  refunds Refund[]
+
+  @@index([invoice_id, status])
+  @@map("payment_orders")
+}
+
+// ─── 支付通知处理记录（幂等核心） ───
+
+model PaymentNotification {
+  id                 String                  @id @default(cuid())
+  notification_id    String?                 @unique @db.VarChar(128) // 微信通知 id
+  out_trade_no       String                  @db.VarChar(64)
+  event_type         String                  @db.VarChar(64)
+  payload_digest     String                  @unique @db.VarChar(128) // 报文摘要，去重兜底
+  signature_verified Boolean                 @default(false)
+  processing_status  NotifyProcessingStatus  @default(received)
+  error_code         String?                 @db.VarChar(64)
+  request_id         String?                 @db.VarChar(64)
+  received_at        DateTime                @default(now())
+  processed_at       DateTime?
+
+  @@index([out_trade_no])
+  @@map("payment_notifications")
+}
+
+// ─── 退款（一期仅全额） ───
+
+model Refund {
+  id               String       @id @default(cuid())
+  refund_no        String       @unique @db.VarChar(64)
+  payment_order_id String
+  payment_order    PaymentOrder @relation(fields: [payment_order_id], references: [id], onDelete: Restrict)
+  amount_fen       BigInt
+  reason           String       @db.VarChar(500)
+  status           RefundStatus @default(created)
+  wechat_refund_id String?      @unique @db.VarChar(64)
+  requested_by     String?
+  approved_by      String?
+  success_at       DateTime?
+  created_at       DateTime     @default(now())
+  updated_at       DateTime     @updatedAt
+
+  @@map("refunds")
+}
+
+// ─── 微信支付账户配置（密钥只存引用/密文，不存明文） ───
+
+model PaymentAccount {
+  id                      String               @id @default(cuid())
+  name                    String               @db.VarChar(100)
+  environment             PaymentAccountEnv
+  app_id                  String               @db.VarChar(64)
+  mch_id                  String               @db.VarChar(32)
+  merchant_cert_serial    String?              @db.VarChar(128)
+  // 以下三项只存引用：env:VAR_NAME / enc:v1:... / kms:...，绝不存明文
+  private_key_secret_ref  String?              @db.VarChar(255)
+  apiv3_secret_ref        String?              @db.VarChar(255)
+  platform_key_config_ref String?              @db.VarChar(255)
+  notify_url              String               @db.VarChar(255)
+  refund_policy           String?              @db.VarChar(500)
+  remark                  String?              @db.VarChar(500)
+  status                  PaymentAccountStatus @default(draft)
+  last_validated_at       DateTime?
+  last_validation_result  String?              @db.VarChar(500)
+  created_by              String?
+  updated_by              String?
+  created_at              DateTime             @default(now())
+  updated_at              DateTime             @updatedAt
+
+  payment_orders PaymentOrder[]
+  payment_account_campuses PaymentAccountCampus[]
+
+  @@index([environment, status])
+  @@map("payment_accounts")
+}
+
+model PaymentAccountCampus {
+  payment_account_id String
+  campus_id          String
+  payment_account    PaymentAccount @relation(fields: [payment_account_id], references: [id], onDelete: Cascade)
+  campus             Campus         @relation(fields: [campus_id], references: [id], onDelete: Cascade)
+
+  @@id([payment_account_id, campus_id])
+  @@map("payment_account_campuses")
+}
+
+// ─── 管理员 / 角色 ───
+
+model AdminUser {
+  id            String      @id @default(cuid())
+  username      String      @unique @db.VarChar(64)
+  password_hash String      @db.VarChar(255)
+  status        AdminStatus @default(active)
+  failed_logins Int         @default(0)
+  locked_until  DateTime?
+  last_login_at DateTime?
+  created_at    DateTime    @default(now())
+  updated_at    DateTime    @updatedAt
+
+  admin_user_roles    AdminUserRole[]
+  admin_user_campuses AdminUserCampus[]
+
+  @@map("admin_users")
+}
+
+model Role {
+  id          String   @id @default(cuid())
+  code        String   @unique @db.VarChar(32) // super_admin / finance / campus_admin / operator
+  name        String   @db.VarChar(64)
+  permissions Json // string[]
+  created_at  DateTime @default(now())
+
+  admin_user_roles AdminUserRole[]
+
+  @@map("roles")
+}
+
+model AdminUserRole {
+  admin_user_id String
+  role_id       String
+  admin_user    AdminUser @relation(fields: [admin_user_id], references: [id], onDelete: Cascade)
+  role          Role      @relation(fields: [role_id], references: [id], onDelete: Cascade)
+
+  @@id([admin_user_id, role_id])
+  @@map("admin_user_roles")
+}
+
+model AdminUserCampus {
+  admin_user_id String
+  campus_id     String
+  admin_user    AdminUser @relation(fields: [admin_user_id], references: [id], onDelete: Cascade)
+  campus        Campus    @relation(fields: [campus_id], references: [id], onDelete: Cascade)
+
+  @@id([admin_user_id, campus_id])
+  @@map("admin_user_campuses")
+}
+
+// ─── 审计日志（只写、受控查；元数据脱敏） ───
+
+model AuditLog {
+  id               String   @id @default(cuid())
+  actor_type       String   @db.VarChar(16) // admin / student / system
+  actor_id         String?  @db.VarChar(64)
+  action           String   @db.VarChar(64)
+  resource_type    String?  @db.VarChar(64)
+  resource_id      String?  @db.VarChar(64)
+  result           String   @db.VarChar(16) // success / fail
+  request_id       String?  @db.VarChar(64)
+  ip_masked        String?  @db.VarChar(64)
+  metadata_redacted Json?
+  created_at       DateTime @default(now())
+
+  @@index([actor_id, created_at])
+  @@index([action, created_at])
+  @@map("audit_logs")
+}
+
+// ─── 导入任务（Excel 学生导入：上传→预览→确认→错误报告） ───
+
+model ImportJob {
+  id            String          @id @default(cuid())
+  type          String          @default("student") @db.VarChar(32)
+  campus_id     String?
+  fee_period_id String?
+  file_name     String          @db.VarChar(255)
+  status        ImportJobStatus @default(uploaded)
+  total_rows    Int             @default(0)
+  valid_rows    Int             @default(0)
+  invalid_rows  Int             @default(0)
+  preview_json  Json? // 校验后的行数据（含错误信息），确认后清理
+  error_report_path String?     @db.VarChar(500)
+  committed_count Int           @default(0)
+  created_by    String?
+  created_at    DateTime        @default(now())
+  updated_at    DateTime        @updatedAt
+
+  @@map("import_jobs")
+}
+
+// ─── 导出任务（受控导出） ───
+
+model ExportJob {
+  id         String          @id @default(cuid())
+  type       String          @db.VarChar(32) // collections / students / orders
+  params_json Json?
+  file_path  String?         @db.VarChar(500)
+  status     ExportJobStatus @default(pending)
+  created_by String?
+  created_at DateTime        @default(now())
+
+  @@map("export_jobs")
+}
+
+// ─── 幂等键（防重复提交：下单/退款/批量账单） ───
+
+model IdempotencyKey {
+  id            String   @id @default(cuid())
+  key           String   @unique @db.VarChar(128)
+  scope         String   @db.VarChar(64) // payment-order / refund / invoice-batch
+  response_json Json?
+  created_at    DateTime @default(now())
+  expires_at    DateTime
+
+  @@index([expires_at])
+  @@map("idempotency_keys")
+}

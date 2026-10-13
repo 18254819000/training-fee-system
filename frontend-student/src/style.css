@@ -1,0 +1,90 @@
+/* 学生端 H5 全局基础样式:移动端优先,浅色 */
+:root {
+  --tfs-primary: #07c160; /* 微信绿,主按钮 */
+  --tfs-danger: #ee0a24;
+  --tfs-text: #323233;
+  --tfs-text-2: #969799;
+  --tfs-bg: #f7f8fa;
+  --tfs-card: #ffffff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--tfs-bg);
+  color: var(--tfs-text);
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#app {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+.page {
+  padding-bottom: calc(24px + env(safe-area-inset-bottom));
+}
+
+.brand-header {
+  background: linear-gradient(135deg, #07c160, #05a552);
+  color: #fff;
+  padding: 28px 20px 20px;
+}
+.brand-header h1 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+.brand-header p {
+  margin: 6px 0 0;
+  font-size: 13px;
+  opacity: 0.9;
+}
+
+.card {
+  background: var(--tfs-card);
+  border-radius: 12px;
+  margin: 12px;
+  padding: 16px;
+}
+
+.amount {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.amount.large {
+  font-size: 28px;
+}
+
+.row-between {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.muted {
+  color: var(--tfs-text-2);
+  font-size: 13px;
+}
+
+.privacy-tip {
+  font-size: 12px;
+  color: var(--tfs-text-2);
+  line-height: 1.7;
+  padding: 0 20px;
+  margin-top: 16px;
+}
+
+.empty-wrap {
+  padding: 48px 20px;
+  text-align: center;
+  color: var(--tfs-text-2);
+}

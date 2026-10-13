@@ -1,0 +1,63 @@
+# 培训学校收费系统 · 本地/服务器一键启动
+# 用法：cp .env.example .env && docker compose up -d
+# 首次启动后写入种子数据：docker compose exec backend npx tsx prisma/seed.ts
+version: "3.9"
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: tfs-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_password_change_me}
+      MYSQL_DATABASE: training_fee
+      MYSQL_USER: tfs
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-tfs_password_change_me}
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    volumes:
+      - tfs-mysql-data:/var/lib/mysql
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-utfs", "-p${MYSQL_PASSWORD:-tfs_password_change_me}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: tfs-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - tfs-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: .
+    container_name: tfs-backend
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: "mysql://tfs:${MYSQL_PASSWORD:-tfs_password_change_me}@mysql:3306/training_fee?charset=utf8mb4"
+      REDIS_URL: "redis://redis:6379"
+    ports:
+      - "${BACKEND_PORT:-3000}:3000"
+    volumes:
+      - tfs-exports:/tmp/tfs-exports
+
+volumes:
+  tfs-mysql-data:
+  tfs-redis-data:
+  tfs-exports:
