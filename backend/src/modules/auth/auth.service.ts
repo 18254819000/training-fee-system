@@ -13,7 +13,7 @@ import { CryptoService } from '../../common/crypto/crypto.service';
 import { RateLimitService } from '../../common/ratelimit/rate-limit.service';
 import { RedisService } from '../../common/redis/redis.service';
 import { AuditService } from '../audit/audit.service';
-import { AdminLoginDto, BindDto, ExchangeCodeDto, STUDENT_SESSION_COOKIE } from './dto/auth.dto';
+import { AdminLoginDto, BindDto, ExchangeCodeDto, PhoneLoginDto, STUDENT_SESSION_COOKIE } from './dto/auth.dto';
 
 // 认证服务：管理员账号密码登录 + 学生端登录码兑换/绑定/会话
 // 学生端会话机制：bind 成功后服务端下发 HttpOnly Cookie（tfs_session），
@@ -269,6 +269,73 @@ export class AuthService {
       },
     });
     return { sessionId: session.id, token };
+  }
+
+  // ─── 学生端：手机号登录（一个手机号可绑定多个学生） ───
+  // TODO: 后续加姓名二次验证（用户确认后）
+
+  async phoneLogin(dto: PhoneLoginDto, res: Response, ip: string, requestId: string) {
+    const ipOk = await this.rateLimit.hit(`phone-login:${ip}`, 20, 60);
+    if (!ipOk) {
+      throw new TooManyRequestsException({ code: 'ERR_RATE_LIMITED', message: '尝试过于频繁，请稍后再试' });
+    }
+
+    // 手机号加密存储，需解密比对（学校规模小，全量扫描可接受）
+    const candidates = await this.prisma.student.findMany({
+      where: { status: 'active', guardian_phone: { not: null } },
+      include: { campus: true },
+    });
+    const matched = candidates.filter((s) => {
+      try {
+        return this.crypto.decryptField(s.guardian_phone) === dto.phone;
+      } catch {
+        return false;
+      }
+    });
+
+    if (matched.length === 0) {
+      await this.audit.log({ actorType: 'student', action: 'phone-login', result: 'fail', requestId, ip, metadata: { reason: 'not_found' } });
+      throw new BadRequestException({ code: 'ERR_PHONE_NOT_FOUND', message: '该手机号未绑定学生，请联系学校' });
+    }
+
+    // 建会话（含该手机号下所有学生 ID）
+    const token = this.crypto.randomHex(32);
+    const ttlDays = parseInt(process.env.STUDENT_SESSION_TTL_DAYS || '30', 10);
+    const studentIds = matched.map((s) => s.id);
+    const session = await this.prisma.studentSession.create({
+      data: {
+        token_hash: this.crypto.hashToken(token),
+        student_ids: studentIds,
+        expires_at: new Date(Date.now() + ttlDays * 24 * 3600 * 1000),
+      },
+    });
+
+    // 建家长绑定关系
+    const guardian = await this.prisma.guardian.create({ data: {} });
+    await this.prisma.studentSession.update({ where: { id: session.id }, data: { guardian_id: guardian.id } });
+    for (const s of matched) {
+      await this.prisma.studentGuardian.upsert({
+        where: { student_id_guardian_id: { student_id: s.id, guardian_id: guardian.id } },
+        update: { verified_at: new Date() },
+        create: { student_id: s.id, guardian_id: guardian.id, verified_at: new Date() },
+      });
+    }
+
+    await this.audit.log({
+      actorType: 'student', actorId: guardian.id, action: 'phone-login', result: 'success',
+      requestId, ip, metadata: { student_ids: studentIds },
+    });
+
+    res.cookie(STUDENT_SESSION_COOKIE, token, this.sessionCookieOptions());
+
+    return {
+      students: matched.map((s) => ({
+        id: s.id,
+        name: this.maskName(s.name),
+        campus_name: s.campus.name,
+        grade_or_class: s.grade_or_class,
+      })),
+    };
   }
 
   async logout(sessionToken: string | null, res: Response): Promise<void> {

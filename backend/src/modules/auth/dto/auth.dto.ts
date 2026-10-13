@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
+import { IsNotEmpty, IsString, Matches, MaxLength } from 'class-validator';
 
 export class AdminLoginDto {
   @ApiProperty({ example: 'admin' })
@@ -28,6 +28,14 @@ export class BindDto {
   @IsString()
   @IsNotEmpty()
   exchange_token!: string;
+}
+
+export class PhoneLoginDto {
+  @ApiProperty({ description: '家长手机号', example: '13800001111' })
+  @IsString()
+  @IsNotEmpty()
+  @Matches(/^1[3-9]\d{9}$/, { message: '手机号格式不正确' })
+  phone!: string;
 }
 
 /** 学生端会话 Cookie 名（前端 withCredentials 自动携带） */

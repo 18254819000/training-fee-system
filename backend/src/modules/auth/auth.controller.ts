@@ -2,7 +2,7 @@ import { Body, Controller, HttpCode, HttpStatus, Post, Req, Res, UseGuards } fro
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { AuthService } from './auth.service';
-import { AdminLoginDto, BindDto, ExchangeCodeDto, STUDENT_SESSION_COOKIE } from './dto/auth.dto';
+import { AdminLoginDto, BindDto, ExchangeCodeDto, PhoneLoginDto, STUDENT_SESSION_COOKIE } from './dto/auth.dto';
 import { Public } from '../../common/decorators/auth.decorators';
 import { AdminJwtGuard } from '../../common/guards/admin-jwt.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -64,6 +64,19 @@ export class AuthController {
     // 已有会话（多孩子追加绑定）从 Cookie / Authorization 头读取
     const existing = this.extractSessionToken(req);
     return this.auth.bind(dto, existing, res, ip, requestId);
+  }
+
+  @Public()
+  @Post('auth/phone-login')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '学生端：手机号登录（一个手机号可对应多个学生）' })
+  phoneLogin(
+    @Body() dto: PhoneLoginDto,
+    @Res({ passthrough: true }) res: Response,
+    @ClientIp() ip: string,
+    @RequestId() requestId: string,
+  ) {
+    return this.auth.phoneLogin(dto, res, ip, requestId);
   }
 
   @Public()
