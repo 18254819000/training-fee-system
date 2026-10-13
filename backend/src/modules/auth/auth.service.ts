@@ -38,7 +38,8 @@ export class AuthService {
     return {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      // 前后端跨域（pages.dev → onrender.com），必须 SameSite=None 浏览器才会发送 Cookie
+      sameSite: 'none',
       path: '/',
       maxAge: ttlDays * 24 * 3600 * 1000,
     };
