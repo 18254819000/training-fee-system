@@ -12,7 +12,6 @@
       </el-select>
       <el-button type="primary" @click="load">查询</el-button>
       <div class="spacer" />
-      <el-button type="success" @click="importVisible = true">Excel 导入</el-button>
       <el-button type="primary" @click="openCreate">新增学生</el-button>
     </div>
 
@@ -23,6 +22,12 @@
       <el-table-column prop="name" label="姓名" width="120" />
       <el-table-column label="校区" width="150">
         <template #default="{ row }">{{ row.campusName ?? campusName(row.campusId) }}</template>
+      </el-table-column>
+      <el-table-column label="收费项目" width="160">
+        <template #default="{ row }">{{ row.feeItemName ?? '-' }}</template>
+      </el-table-column>
+      <el-table-column label="家长手机号" width="130">
+        <template #default="{ row }">{{ row.guardianPhone ?? '-' }}</template>
       </el-table-column>
       <el-table-column prop="gradeOrClass" label="班级/年级" width="140" />
       <el-table-column label="状态" width="90">
@@ -56,15 +61,27 @@
     <el-dialog v-model="dialogVisible" :title="editing ? '编辑学生' : '新增学生'" width="560px">
       <el-form ref="formRef" :model="form" :rules="rules" label-width="96px">
         <el-form-item label="姓名" prop="name">
-          <el-input v-model="form.name" maxlength="100" />
+          <el-input v-model="form.name" maxlength="64" placeholder="必填" />
+          <div class="form-tip">同一校区内「手机号 + 姓名」不可重复（兄弟姐妹可共用家长手机号）</div>
         </el-form-item>
         <el-form-item label="内部学号" prop="studentNo">
-          <el-input v-model="form.studentNo" maxlength="64" placeholder="可选,按学校规则唯一" />
+          <el-input v-model="form.studentNo" maxlength="64" placeholder="选填，仅作备注" />
         </el-form-item>
         <el-form-item label="校区" prop="campusId">
-          <el-select v-model="form.campusId" placeholder="请选择校区" style="width: 100%">
+          <el-select v-model="form.campusId" placeholder="请选择校区" style="width: 100%" @change="onFormCampusChange">
             <el-option v-for="c in campuses" :key="c.id" :label="c.name" :value="c.id" />
           </el-select>
+        </el-form-item>
+        <el-form-item label="收费项目" prop="feeItemId">
+          <el-select v-model="form.feeItemId" :placeholder="form.campusId ? '请选择报读的收费项目' : '请先选择校区'" clearable
+            style="width: 100%" :disabled="!form.campusId">
+            <el-option v-for="f in campusFeeItems" :key="f.id" :label="feeItemLabel(f)" :value="f.id" />
+          </el-select>
+          <div class="form-tip">仅显示所选校区的收费项目；批量导入请在「收费项目」列表中使用「导入学生」</div>
+        </el-form-item>
+        <el-form-item label="家长手机号" prop="guardianPhone">
+          <el-input v-model="form.guardianPhone" maxlength="11"
+            :placeholder="editing ? '不修改请留空' : '必填，学生端登录凭证'" />
         </el-form-item>
         <el-form-item label="班级/年级" prop="gradeOrClass">
           <el-input v-model="form.gradeOrClass" maxlength="100" />
@@ -83,79 +100,15 @@
       </template>
     </el-dialog>
 
-    <!-- Excel 导入:上传 → 预览 → 确认导入 → 下载错误报告 -->
-    <el-dialog v-model="importVisible" title="Excel 导入学生" width="720px" @close="resetImport">
-      <el-steps :active="importStep" finish-status="success" class="mb">
-        <el-step title="上传文件" />
-        <el-step title="预览校验" />
-        <el-step title="确认导入" />
-        <el-step title="完成" />
-      </el-steps>
-
-      <div v-if="importStep === 0">
-        <el-button type="primary" link @click="downloadTemplate">下载导入模板(CSV)</el-button>
-        <el-upload drag :auto-upload="false" accept=".xlsx,.xls,.csv" :limit="1" :on-change="onFileChange"
-          :on-remove="onFileRemove" class="upload-area">
-          <div class="el-upload__text">将 Excel 文件拖到此处,或 <em>点击选择</em></div>
-          <template #tip>
-            <div class="el-upload__tip">支持 .xlsx/.xls/.csv,建议字段:姓名(必填)、校区编码(必填)、班级/年级、家长手机号、内部学号</div>
-          </template>
-        </el-upload>
-        <div class="step-actions">
-          <el-button type="primary" :loading="uploading" :disabled="!importFile" @click="doUpload">上传并校验</el-button>
-        </div>
-      </div>
-
-      <div v-if="importStep === 1">
-        <el-descriptions :column="3" border class="mb">
-          <el-descriptions-item label="总行数">{{ job?.totalRows ?? 0 }}</el-descriptions-item>
-          <el-descriptions-item label="有效行">{{ job?.validRows ?? 0 }}</el-descriptions-item>
-          <el-descriptions-item label="错误行">{{ job?.errorRows ?? 0 }}</el-descriptions-item>
-        </el-descriptions>
-        <el-alert v-if="(job?.errorRows ?? 0) > 0" type="warning" :closable="false" class="mb">
-          有 {{ job?.errorRows }} 行存在错误,错误行将被跳过;可下载错误报告查看详情。
-        </el-alert>
-        <el-table v-if="jobErrors.length" :data="jobErrors" border max-height="260">
-          <el-table-column prop="row" label="行号" width="80" />
-          <el-table-column prop="field" label="字段" width="140" />
-          <el-table-column prop="message" label="错误说明" />
-        </el-table>
-        <el-empty v-else description="全部数据校验通过" />
-        <div class="step-actions">
-          <el-button @click="importStep = 0">重新上传</el-button>
-          <el-button type="primary" :disabled="(job?.validRows ?? 0) === 0" @click="importStep = 2">下一步</el-button>
-        </div>
-      </div>
-
-      <div v-if="importStep === 2">
-        <p>即将导入 <strong>{{ job?.validRows ?? 0 }}</strong> 条有效学生记录,错误行将被跳过。</p>
-        <div class="step-actions">
-          <el-button @click="importStep = 1">返回预览</el-button>
-          <el-button type="primary" :loading="committing" @click="doCommit">确认导入</el-button>
-        </div>
-      </div>
-
-      <div v-if="importStep === 3">
-        <el-result icon="success" title="导入完成"
-          :sub-title="`成功导入 ${commitResult.imported} 条,跳过 ${commitResult.skipped} 条`">
-          <template #extra>
-            <el-button v-if="(job?.errorRows ?? 0) > 0" :loading="downloadingErrors" @click="doDownloadErrors">
-              下载错误报告
-            </el-button>
-            <el-button type="primary" @click="finishImport">完成</el-button>
-          </template>
-        </el-result>
-      </div>
-    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
-import { ElMessage, ElMessageBox, type FormInstance, type FormRules, type UploadFile } from 'element-plus'
+import { computed, reactive, ref } from 'vue'
+import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { adminApi, toArray, toPage } from '../api/admin'
 import { formatDateTime } from '../utils/format'
-import type { Campus, ImportJob, Student, StudentStatus } from '../api/types'
+import type { Campus, FeeItem, Student, StudentStatus } from '../api/types'
 import type { NormalizedError } from '../api/client'
 
 const STUDENT_STATUS_TEXT: Record<StudentStatus, string> = { active: '在读', inactive: '停用', left: '离校' }
@@ -163,6 +116,7 @@ const studentStatusText = (s: StudentStatus) => STUDENT_STATUS_TEXT[s] ?? s
 
 const items = ref<Student[]>([])
 const campuses = ref<Campus[]>([])
+const feeItems = ref<FeeItem[]>([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(20)
@@ -174,10 +128,46 @@ const dialogVisible = ref(false)
 const editing = ref<Student | null>(null)
 const submitting = ref(false)
 const formRef = ref<FormInstance>()
-const form = reactive({ name: '', studentNo: '', campusId: '', gradeOrClass: '', status: 'active' as StudentStatus })
+const form = reactive({
+  name: '', studentNo: '', campusId: '', feeItemId: '',
+  guardianPhone: '', gradeOrClass: '', status: 'active' as StudentStatus,
+})
+const phoneRe = /^1[3-9]\d{9}$/
 const rules: FormRules = {
   name: [{ required: true, message: '请输入姓名', trigger: 'blur' }],
   campusId: [{ required: true, message: '请选择校区', trigger: 'change' }],
+  feeItemId: [{ required: true, message: '请选择收费项目', trigger: 'change' }],
+  guardianPhone: [
+    {
+      validator: (_r, v: string, cb) => {
+        if (!v) {
+          // 新增时必填；编辑时留空表示不修改
+          return editing.value ? cb() : cb(new Error('请输入家长手机号（学生端登录凭证）'))
+        }
+        if (!phoneRe.test(v)) return cb(new Error('手机号格式不正确'))
+        cb()
+      },
+      trigger: 'blur',
+    },
+  ],
+}
+
+/** 编辑学生时：收费项目只显示已选择校区的项目 */
+const campusFeeItems = computed(() =>
+  form.campusId ? feeItems.value.filter((f) => f.campusId === form.campusId) : [],
+)
+
+function onFormCampusChange() {
+  // 切换校区后，清除不属于该校区的已选收费项目
+  if (!campusFeeItems.value.some((f) => f.id === form.feeItemId)) {
+    form.feeItemId = ''
+  }
+}
+
+/** 收费项目下拉展示：名称（绑定的收费期） */
+function feeItemLabel(f: FeeItem): string {
+  const periods = f.feePeriods?.map((p) => p.name).join('、')
+  return periods ? `${f.name}（${periods}）` : f.name
 }
 
 function campusName(id: string): string {
@@ -188,7 +178,7 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const [res, c] = await Promise.all([
+    const [res, c, f] = await Promise.all([
       adminApi.students({
         page: page.value,
         pageSize: pageSize.value,
@@ -197,10 +187,12 @@ async function load() {
         status: filters.status || undefined,
       }),
       adminApi.campuses({ pageSize: 200 }),
+      adminApi.feeItems({ pageSize: 200, status: 'active' }),
     ])
     items.value = toArray(res)
     total.value = toPage(res, page.value, pageSize.value).total
     campuses.value = toArray(c)
+    feeItems.value = toArray(f)
   } catch (e) {
     error.value = (e as NormalizedError).message || '加载学生列表失败'
   } finally {
@@ -210,7 +202,10 @@ async function load() {
 
 function openCreate() {
   editing.value = null
-  Object.assign(form, { name: '', studentNo: '', campusId: '', gradeOrClass: '', status: 'active' as StudentStatus })
+  Object.assign(form, {
+    name: '', studentNo: '', campusId: '', feeItemId: '',
+    guardianPhone: '', gradeOrClass: '', status: 'active' as StudentStatus,
+  })
   dialogVisible.value = true
 }
 
@@ -220,6 +215,8 @@ function openEdit(row: Student) {
     name: row.name,
     studentNo: row.studentNo ?? '',
     campusId: row.campusId,
+    feeItemId: (row as any).feeItemId ?? '',
+    guardianPhone: '',
     gradeOrClass: row.gradeOrClass ?? '',
     status: row.status,
   })
@@ -231,13 +228,16 @@ async function onSubmit() {
   if (!valid) return
   submitting.value = true
   try {
-    const payload = {
+    const payload: Record<string, unknown> = {
       name: form.name.trim(),
       studentNo: form.studentNo.trim() || undefined,
       campusId: form.campusId,
+      feeItemId: form.feeItemId || undefined,
       gradeOrClass: form.gradeOrClass.trim() || undefined,
       status: form.status,
     }
+    // 编辑时手机号留空 = 不修改（列表返回的是脱敏号码，不可回填提交）
+    if (form.guardianPhone.trim()) payload.guardianPhone = form.guardianPhone.trim()
     if (editing.value) {
       await adminApi.updateStudent(editing.value.id, payload)
       ElMessage.success('学生已更新')
@@ -271,98 +271,6 @@ async function toggleStatus(row: Student, status: StudentStatus) {
   }
 }
 
-// ---------- Excel 导入 ----------
-const importVisible = ref(false)
-const importStep = ref(0)
-const importFile = ref<File | null>(null)
-const uploading = ref(false)
-const committing = ref(false)
-const downloadingErrors = ref(false)
-const job = ref<ImportJob | null>(null)
-const jobErrors = ref<Array<{ row: number; field?: string; message: string }>>([])
-const commitResult = ref({ imported: 0, skipped: 0 })
-
-function resetImport() {
-  importStep.value = 0
-  importFile.value = null
-  job.value = null
-  jobErrors.value = []
-  commitResult.value = { imported: 0, skipped: 0 }
-}
-
-// 模板为客户端生成的 CSV(若后端提供官方模板接口,改为调用该接口)
-function downloadTemplate() {
-  const header = '姓名,校区编码,班级/年级,家长手机号,内部学号\n'
-  const sample = '张三,BJ01,高一(3)班,13800000000,XS2026001\n'
-  const blob = new Blob(['\uFEFF' + header + sample], { type: 'text/csv;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = '学生导入模板.csv'
-  a.click()
-  URL.revokeObjectURL(url)
-}
-
-function onFileChange(file: UploadFile) {
-  importFile.value = file.raw ?? null
-}
-function onFileRemove() {
-  importFile.value = null
-}
-
-async function doUpload() {
-  if (!importFile.value) return
-  uploading.value = true
-  try {
-    const created = await adminApi.createImportJob(importFile.value)
-    const preview = await adminApi.importJob(created.id)
-    job.value = preview
-    jobErrors.value = preview.errors ?? []
-    importStep.value = 1
-  } catch (e) {
-    ElMessage.error((e as NormalizedError).message || '上传失败')
-  } finally {
-    uploading.value = false
-  }
-}
-
-async function doCommit() {
-  if (!job.value) return
-  committing.value = true
-  try {
-    const res = await adminApi.commitImport(job.value.id)
-    commitResult.value = { imported: res.imported, skipped: res.skipped }
-    importStep.value = 3
-  } catch (e) {
-    ElMessage.error((e as NormalizedError).message || '导入失败')
-  } finally {
-    committing.value = false
-  }
-}
-
-async function doDownloadErrors() {
-  if (!job.value) return
-  downloadingErrors.value = true
-  try {
-    const blob = await adminApi.importErrors(job.value.id)
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `学生导入错误报告-${job.value.fileName || job.value.id}.xlsx`
-    a.click()
-    URL.revokeObjectURL(url)
-  } catch (e) {
-    ElMessage.error((e as NormalizedError).message || '下载错误报告失败')
-  } finally {
-    downloadingErrors.value = false
-  }
-}
-
-function finishImport() {
-  importVisible.value = false
-  load()
-}
-
 load()
 </script>
 
@@ -380,5 +288,12 @@ load()
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.form-tip {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 4px;
+  line-height: 1.5;
 }
 </style>

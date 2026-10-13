@@ -77,12 +77,12 @@
           <el-input v-model="userForm.password" type="password" show-password maxlength="64" placeholder="请设置强密码" />
         </el-form-item>
         <el-form-item label="角色" prop="roles">
-          <el-select v-model="userForm.roles" multiple placeholder="选择角色" style="width: 100%">
+          <el-select ref="userRoleSelect" v-model="userForm.roles" multiple placeholder="选择角色" style="width: 100%" @change="userRoleSelect?.blur()">
             <el-option v-for="r in roles" :key="r.code" :label="r.name" :value="r.code" />
           </el-select>
         </el-form-item>
         <el-form-item label="校区范围" prop="campusIds">
-          <el-select v-model="userForm.campusIds" multiple placeholder="校区管理员限定;总部角色可留空" style="width: 100%">
+          <el-select ref="userCampusSelect" v-model="userForm.campusIds" multiple placeholder="校区管理员限定;总部角色可留空" style="width: 100%" @change="userCampusSelect?.blur()">
             <el-option v-for="c in campuses" :key="c.id" :label="c.name" :value="c.id" />
           </el-select>
           <div class="form-tip">校区管理员只能管理所选校区的数据;总部/财务角色留空表示全部校区</div>
@@ -142,6 +142,8 @@ import { adminApi, toArray } from '../api/admin'
 import { formatDateTime } from '../utils/format'
 import type { AdminUser, Campus, Role } from '../api/types'
 import type { NormalizedError } from '../api/client'
+const userRoleSelect = ref()
+const userCampusSelect = ref()
 
 const ALL_PERMISSIONS = [
   { value: 'campus:manage', label: '校区管理' },

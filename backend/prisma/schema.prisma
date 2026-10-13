@@ -268,6 +268,8 @@ model FeeItem {
   fee_item_periods  FeeItemPeriod[]
   // 绑定该项目的学生
   students          Student[]
+  // 该项目的学生导入任务
+  import_jobs       ImportJob[]
 
   @@index([campus_id])
   @@map("fee_items")
@@ -514,6 +516,9 @@ model ImportJob {
   type          String          @default("student") @db.VarChar(32)
   campus_id     String?
   fee_period_id String?
+  // 收费项目内导入：指定项目后，导入行自动绑定该项目（此时 campus_id 取项目的校区）
+  fee_item_id   String?
+  fee_item      FeeItem?        @relation(fields: [fee_item_id], references: [id], onDelete: SetNull)
   file_name     String          @db.VarChar(255)
   status        ImportJobStatus @default(uploaded)
   total_rows    Int             @default(0)
@@ -526,6 +531,7 @@ model ImportJob {
   created_at    DateTime        @default(now())
   updated_at    DateTime        @updatedAt
 
+  @@index([fee_item_id])
   @@map("import_jobs")
 }
 

@@ -4,7 +4,6 @@ import type {
   AdminUser,
   AuditLog,
   Campus,
-  CampusFeePrice,
   CollectionStats,
   FeeItem,
   FeePeriod,
@@ -35,12 +34,18 @@ export const adminApi = {
     patch<Campus>(`/admin/campuses/${id}`, data),
 
   // ---- 收费期 ----
-  feePeriods: (params?: PageParams & { status?: string }) =>
+  feePeriods: (params?: PageParams & { status?: string; campusId?: string }) =>
     get<PageResult<FeePeriod> | FeePeriod[]>('/admin/fee-periods', { params }),
-  createFeePeriod: (data: Partial<FeePeriod> & { campusIds?: string[] }) =>
+  createFeePeriod: (data: Partial<FeePeriod> & { campusId: string }) =>
     post<FeePeriod>('/admin/fee-periods', data),
   updateFeePeriod: (id: string, data: Partial<FeePeriod>) =>
     patch<FeePeriod>(`/admin/fee-periods/${id}`, data),
+  deleteFeePeriod: (id: string) => del<void>(`/admin/fee-periods/${id}`),
+  /** 收费期绑定的收费项目（账单生成用） */
+  feePeriodFeeItems: (id: string) =>
+    get<Array<{ id: string; code: string; name: string; amountFen: number }>>(
+      `/admin/fee-periods/${id}/fee-items`,
+    ),
 
   // ---- 学生 ----
   students: (params?: PageParams & { campusId?: string; keyword?: string; status?: string }) =>
@@ -49,16 +54,19 @@ export const adminApi = {
   updateStudent: (id: string, data: Partial<Student>) =>
     patch<Student>(`/admin/students/${id}`, data),
 
-  // ---- Excel 导入 ----
-  createImportJob: (file: File) => {
+  // ---- 收费项目内学生导入（导入即分班；全局导入已下线） ----
+  feeItemImportTemplate: (feeItemId: string) =>
+    get<Blob>(`/admin/fee-items/${feeItemId}/import/template`, { responseType: 'blob' }),
+  uploadFeeItemImport: (feeItemId: string, file: File) => {
     const form = new FormData();
     form.append('file', file);
-    return post<ImportJob>('/admin/import-jobs', form, {
+    return post<ImportJob>(`/admin/fee-items/${feeItemId}/import`, form, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
   },
   importJob: (id: string) => get<ImportJob>(`/admin/import-jobs/${id}`),
-  commitImport: (id: string) => post<{ imported: number; skipped: number }>(`/admin/import-jobs/${id}/commit`),
+  commitImport: (id: string) =>
+    post<{ imported: number; updated: number; skipped: number }>(`/admin/import-jobs/${id}/commit`),
   importErrors: (id: string) => get<Blob>(`/admin/import-jobs/${id}/errors`, { responseType: 'blob' }),
 
   // ---- 登录码 ----
@@ -69,28 +77,41 @@ export const adminApi = {
     get<PageResult<LoginCode> | LoginCode[]>('/admin/login-codes', { params }),
 
   // ---- 课程与收费项目 ----
-  feeItems: (params?: PageParams & { status?: string; keyword?: string }) =>
+  feeItems: (params?: PageParams & { status?: string; keyword?: string; campusId?: string }) =>
     get<PageResult<FeeItem> | FeeItem[]>('/admin/fee-items', { params }),
-  createFeeItem: (data: Partial<FeeItem>) => post<FeeItem>('/admin/fee-items', data),
+  createFeeItem: (data: Partial<FeeItem> & { campusId: string; amountFen: number; feePeriodIds?: string[] }) =>
+    post<FeeItem>('/admin/fee-items', data),
   // PRD §9.2 未列出该 PATCH 端点,按惯例补上;若后端未实现将返回 404,见 README 契约疑问
   updateFeeItem: (id: string, data: Partial<FeeItem>) =>
     patch<FeeItem>(`/admin/fee-items/${id}`, data),
-  campusPrices: (params?: { feeItemId?: string; campusId?: string }) =>
-    get<CampusFeePrice[]>('/admin/campus-fee-prices', { params }),
-  createCampusPrice: (data: Partial<CampusFeePrice>) =>
-    post<CampusFeePrice>('/admin/campus-fee-prices', data),
+  deleteFeeItem: (id: string) => del<void>(`/admin/fee-items/${id}`),
+  feeItemPeriods: (id: string) =>
+    get<Array<{ id: string; code: string; name: string; status: string }>>(`/admin/fee-items/${id}/periods`),
+  setFeeItemPeriods: (id: string, feePeriodIds: string[]) =>
+    post<void>(`/admin/fee-items/${id}/periods`, { feePeriodIds }),
 
   // ---- 账单 ----
   invoices: (params?: PageParams & { campusId?: string; feePeriodId?: string; status?: string; keyword?: string }) =>
     get<PageResult<Invoice> | Invoice[]>('/admin/invoices', { params }),
-  /** 生成账单(单个/批量):返回预览或生成结果 */
+  /**
+   * 生成账单（新链路）：校区 → 收费期 → 收费项目 → 预览 → 生成。
+   * campusId 必填；feeItemIds 不传 = 该收费期绑定的全部启用项目；preview=true 返回预览不写库。
+   */
   generateInvoices: (data: {
     feePeriodId: string;
-    campusId?: string;
-    studentIds?: string[];
+    campusId: string;
+    feeItemIds?: string[];
     preview?: boolean;
   }) =>
-    post<{ preview: boolean; count: number; totalFen: number; invoices?: Invoice[] }>(
+    post<{
+      preview: boolean; count: number; totalFen: number; invoices?: Invoice[];
+      groups?: Array<{
+        feeItemId: string; feeItemName: string; amountFen: number; count: number;
+        students: Array<{ studentId: string; studentName: string }>;
+      }>;
+      students?: Array<{ studentId: string; studentName: string; feeItemName: string; amountFen: number }>;
+      skipped?: Array<{ studentId: string; studentName: string; reason: string }>;
+    }>(
       '/admin/invoices',
       data,
     ),

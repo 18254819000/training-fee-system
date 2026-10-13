@@ -67,24 +67,31 @@
         :page-sizes="[10, 20, 50]" layout="total, sizes, prev, pager, next" @change="load" />
     </div>
 
-    <!-- 生成账单:先预览数量/总金额再确认 -->
-    <el-dialog v-model="genVisible" title="生成账单" width="620px">
+    <!-- 生成账单：校区 → 收费期 → 收费项目 → 预览 → 确认 -->
+    <el-dialog v-model="genVisible" title="生成账单" width="680px" @close="resetGen">
       <el-form ref="genFormRef" :model="genForm" :rules="genRules" label-width="110px">
-        <el-form-item label="收费期" prop="feePeriodId">
-          <el-select v-model="genForm.feePeriodId" placeholder="仅开放收费期可生成" style="width: 100%">
-            <el-option v-for="p in openPeriods" :key="p.id" :label="p.name" :value="p.id" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="校区">
-          <el-select v-model="genForm.campusId" placeholder="全部校区" clearable style="width: 100%">
+        <el-form-item label="校区" prop="campusId">
+          <el-select v-model="genForm.campusId" placeholder="请选择校区" style="width: 100%">
             <el-option v-for="c in campuses" :key="c.id" :label="c.name" :value="c.id" />
           </el-select>
         </el-form-item>
-        <el-form-item label="学生">
-          <el-select v-model="genForm.studentIds" multiple filterable placeholder="不选则为筛选范围内全部学生" style="width: 100%">
-            <el-option v-for="s in genStudents" :key="s.id" :label="`${s.name}${s.studentNo ? `(${s.studentNo})` : ''}`"
-              :value="s.id" />
+        <el-form-item label="收费期" prop="feePeriodId">
+          <el-select v-model="genForm.feePeriodId"
+            :placeholder="genForm.campusId ? '仅开放收费期可生成' : '请先选择校区'"
+            :disabled="!genForm.campusId" style="width: 100%">
+            <el-option v-for="p in campusOpenPeriods" :key="p.id" :label="p.name" :value="p.id" />
           </el-select>
+        </el-form-item>
+        <el-form-item label="收费项目">
+          <div v-if="!genForm.feePeriodId" class="text-muted">请先选择收费期</div>
+          <el-checkbox-group v-else v-model="genForm.feeItemIds" v-loading="itemsLoading">
+            <el-checkbox v-for="f in periodFeeItems" :key="f.id" :label="f.id" border class="item-check">
+              {{ f.name }}（¥{{ fenToYuan(f.amountFen) }}）
+            </el-checkbox>
+          </el-checkbox-group>
+          <div v-if="genForm.feePeriodId && !periodFeeItems.length && !itemsLoading" class="text-muted">
+            该收费期未绑定任何启用的收费项目
+          </div>
         </el-form-item>
       </el-form>
 
@@ -96,6 +103,17 @@
           </el-descriptions-item>
         </el-descriptions>
         <el-alert v-if="preview.count === 0" type="warning" :closable="false" title="没有符合条件的待生成账单" />
+        <div v-if="preview.groups?.length" class="mt">
+          <div v-for="g in preview.groups" :key="g.feeItemId" class="group-block">
+            <div class="group-title">
+              {{ g.feeItemName }} <span class="amount">¥{{ fenToYuan(g.amountFen) }}</span>
+              <span class="text-muted">× {{ g.count }} 人</span>
+            </div>
+            <div class="group-students">{{ g.students.map((s) => s.studentName).join('、') }}</div>
+          </div>
+        </div>
+        <el-alert v-if="preview.skipped?.length" type="warning" :closable="false" class="mt"
+          :title="`跳过 ${preview.skipped.length} 人`" :description="preview.skipped.map(s => `${s.studentName}：${s.reason}`).join('；')" />
       </el-card>
 
       <template #footer>
@@ -138,11 +156,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { adminApi, toArray, toPage } from '../api/admin'
 import { INVOICE_STATUS_TEXT, fenToYuan, formatDateTime, statusText } from '../utils/format'
-import type { Campus, FeePeriod, Invoice, Student } from '../api/types'
+import type { Campus, FeePeriod, Invoice } from '../api/types'
 import type { NormalizedError } from '../api/client'
 
 const items = ref<Invoice[]>([])
@@ -154,7 +173,6 @@ const pageSize = ref(20)
 const loading = ref(false)
 const error = ref('')
 const filters = reactive({ keyword: '', campusId: '', feePeriodId: '', status: '' })
-const openPeriods = computed(() => feePeriods.value.filter((p) => p.status === 'open'))
 
 function invoiceTagType(status: string): 'success' | 'info' | 'warning' | 'danger' {
   if (status === 'paid') return 'success'
@@ -190,40 +208,79 @@ async function load() {
   }
 }
 
-// ---------- 生成账单 ----------
+// ---------- 生成账单：校区 → 收费期 → 收费项目 ----------
 const genVisible = ref(false)
 const genFormRef = ref<FormInstance>()
-const genForm = reactive({ feePeriodId: '', campusId: '', studentIds: [] as string[] })
+const genForm = reactive({ campusId: '', feePeriodId: '', feeItemIds: [] as string[] })
 const genRules: FormRules = {
+  campusId: [{ required: true, message: '请选择校区', trigger: 'change' }],
   feePeriodId: [{ required: true, message: '请选择开放收费期', trigger: 'change' }],
 }
 const previewLoading = ref(false)
 const genLoading = ref(false)
-const preview = ref<{ preview: boolean; count: number; totalFen: number } | null>(null)
-const genStudents = ref<Student[]>([])
+const itemsLoading = ref(false)
+const preview = ref<{
+  preview: boolean; count: number; totalFen: number;
+  groups?: Array<{
+    feeItemId: string; feeItemName: string; amountFen: number; count: number;
+    students: Array<{ studentId: string; studentName: string }>;
+  }>;
+  students?: Array<{ studentId: string; studentName: string; feeItemName: string; amountFen: number }>;
+  skipped?: Array<{ studentId: string; studentName: string; reason: string }>;
+} | null>(null)
+const periodFeeItems = ref<Array<{ id: string; code: string; name: string; amountFen: number }>>([])
+
+/** 所选校区的开放收费期 */
+const campusOpenPeriods = computed(() =>
+  feePeriods.value.filter((p) => p.status === 'open' && p.campusId === genForm.campusId),
+)
+
+function resetGen() {
+  genForm.campusId = ''
+  genForm.feePeriodId = ''
+  genForm.feeItemIds = []
+  periodFeeItems.value = []
+  preview.value = null
+}
 
 watch(
-  () => [genForm.feePeriodId, genForm.campusId],
-  async () => {
+  () => genForm.campusId,
+  () => {
+    genForm.feePeriodId = ''
+    genForm.feeItemIds = []
+    periodFeeItems.value = []
     preview.value = null
+  },
+)
+
+watch(
+  () => genForm.feePeriodId,
+  async (periodId) => {
+    preview.value = null
+    genForm.feeItemIds = []
+    periodFeeItems.value = []
+    if (!periodId) return
+    itemsLoading.value = true
     try {
-      const s = await adminApi.students({
-        pageSize: 500,
-        status: 'active',
-        campusId: genForm.campusId || undefined,
-      })
-      genStudents.value = toArray(s)
-    } catch {
-      genStudents.value = []
+      periodFeeItems.value = await adminApi.feePeriodFeeItems(periodId)
+      // 默认全选
+      genForm.feeItemIds = periodFeeItems.value.map((f) => f.id)
+    } catch (e) {
+      ElMessage.error((e as NormalizedError).message || '加载收费项目失败')
+    } finally {
+      itemsLoading.value = false
     }
   },
 )
 
 function genPayload(previewMode: boolean) {
+  const allChecked =
+    periodFeeItems.value.length > 0 && genForm.feeItemIds.length === periodFeeItems.value.length
   return {
     feePeriodId: genForm.feePeriodId,
-    campusId: genForm.campusId || undefined,
-    studentIds: genForm.studentIds.length ? genForm.studentIds : undefined,
+    campusId: genForm.campusId,
+    // 全部选中时不传 = 本期全部绑定项目；部分选中则限定范围
+    feeItemIds: allChecked ? undefined : genForm.feeItemIds,
     preview: previewMode,
   }
 }
@@ -281,7 +338,25 @@ function openDetail(row: Invoice) {
   detailVisible.value = true
 }
 
-load()
+const route = useRoute()
+
+onMounted(async () => {
+  await load()
+  // 从收费项目“导入学生 → 去生成账单”跳转过来：预选校区（及收费期）并打开生成对话框
+  if (route.query.generate === '1') {
+    const campusId = String(route.query.campusId || '')
+    if (campusId && campuses.value.some((c) => c.id === campusId)) {
+      genForm.campusId = campusId
+      // 等一帧让校区 watch 清理完，再预选收费期（触发项目加载）
+      await nextTick()
+      const feePeriodId = String(route.query.feePeriodId || '')
+      if (feePeriodId && campusOpenPeriods.value.some((p) => p.id === feePeriodId)) {
+        genForm.feePeriodId = feePeriodId
+      }
+    }
+    genVisible.value = true
+  }
+})
 </script>
 
 <style scoped>
@@ -291,6 +366,33 @@ load()
 
 .preview-card {
   margin-top: 16px;
+}
+
+.item-check {
+  margin: 0 8px 8px 0;
+}
+
+.group-block {
+  border: 1px solid #ebeef5;
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+}
+
+.group-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.group-students {
+  font-size: 13px;
+  color: #606266;
+  line-height: 1.6;
+}
+
+.text-muted {
+  color: #909399;
+  font-size: 13px;
 }
 
 .drawer-subtitle {

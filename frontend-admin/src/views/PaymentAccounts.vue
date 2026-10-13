@@ -69,7 +69,7 @@
           </el-radio-group>
         </el-form-item>
         <el-form-item v-if="form.scopeType === 'campuses'" label="指定校区" prop="campusIds">
-          <el-select v-model="form.campusIds" multiple placeholder="选择校区" style="width: 100%">
+          <el-select ref="payAcctCampusSelect" v-model="form.campusIds" multiple placeholder="选择校区" style="width: 100%" @change="payAcctCampusSelect?.blur()">
             <el-option v-for="c in campuses" :key="c.id" :label="c.name" :value="c.id" />
           </el-select>
         </el-form-item>
@@ -151,6 +151,7 @@ import {
 import { adminApi } from '../api/admin'
 import type { Campus, PaymentAccount, PaymentAccountEnv, PaymentAccountStatus } from '../api/types'
 import type { NormalizedError } from '../api/client'
+const payAcctCampusSelect = ref()
 
 const STATUS_TEXT: Record<PaymentAccountStatus, string> = {
   draft: '草稿',

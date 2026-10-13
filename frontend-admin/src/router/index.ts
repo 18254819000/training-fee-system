@@ -47,12 +47,6 @@ const router = createRouter({
           meta: { title: '学生管理', menu: '学生管理' },
         },
         {
-          path: 'login-codes',
-          name: 'login-codes',
-          component: () => import('../views/LoginCodes.vue'),
-          meta: { title: '登录码管理', menu: '登录码管理' },
-        },
-        {
           path: 'fee-items',
           name: 'fee-items',
           component: () => import('../views/FeeItems.vue'),

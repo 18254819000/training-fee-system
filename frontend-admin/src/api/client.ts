@@ -94,10 +94,13 @@ api.interceptors.response.use(
   (error: AxiosError) => {
     const status = error.response?.status;
     const respData = error.response?.data as
-      | { code?: string; message?: string; requestId?: string }
+      | { code?: string; message?: string | string[]; requestId?: string }
       | undefined;
     // 后端返回的 message 若包含内部细节则降级为友好提示(简单启发式)
-    const rawMsg = respData?.message;
+    // 校验错误时 message 为数组，join 为可读字符串
+    const rawMsg = Array.isArray(respData?.message)
+      ? (respData.message as string[]).join('；')
+      : respData?.message;
     const looksInternal =
       !!rawMsg && /(sql|stack|exception|key|secret|password|at\s+[\w$.]+\()/i.test(rawMsg);
     const normalized: NormalizedError = {

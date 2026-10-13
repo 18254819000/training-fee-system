@@ -11,7 +11,7 @@
         <el-menu-item index="/campuses">校区管理</el-menu-item>
         <el-menu-item index="/fee-periods">收费期管理</el-menu-item>
         <el-menu-item index="/students">学生管理</el-menu-item>
-        <el-menu-item index="/login-codes">登录码管理</el-menu-item>
+        <!-- 登录码已下线（改手机号登录） -->
         <el-menu-item index="/fee-items">课程与收费项目</el-menu-item>
         <el-menu-item index="/invoices">账单管理</el-menu-item>
         <el-menu-item index="/payment-orders">支付订单</el-menu-item>

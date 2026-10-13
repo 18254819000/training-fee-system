@@ -2,6 +2,7 @@ import {
   BadRequestException, ConflictException, Injectable, NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { CryptoService } from '../../common/crypto/crypto.service';
 import { CampusScopeService } from '../../common/guards/campus-scope.service';
 import { AuditService } from '../audit/audit.service';
 import { AdminUserInfo } from '../../common/types';
@@ -13,12 +14,14 @@ import {
 } from './dto/course.dto';
 
 // 课程 / 收费项目服务
-// 新模型：收费项目直挂单个校区与价格；收费项目 ↔ 收费期多对多（须同校区）；
-// 学生绑定收费项目；账单按 校区 → 收费期 → 收费项目 生成，金额取项目价格快照。
+// 新模型：收费项目直挂单个校区与价格；编码由后台自动生成（前端隐藏）；
+// 收费项目 ↔ 收费期多对多（须同校区）；学生绑定收费项目；
+// 账单按 校区 → 收费期 → 收费项目 生成，金额取项目价格快照。
 @Injectable()
 export class CourseService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly crypto: CryptoService,
     private readonly scope: CampusScopeService,
     private readonly audit: AuditService,
   ) {}
@@ -111,30 +114,38 @@ export class CourseService {
     const periodIds = Array.from(new Set((dto.fee_period_ids || []).filter(Boolean)));
     await this.assertPeriodsInCampus(periodIds, campus.id);
 
-    try {
-      const item = await this.prisma.feeItem.create({
-        data: {
-          code: dto.code,
-          name: dto.name,
-          course_id: dto.course_id || null,
-          campus_id: campus.id,
-          amount_fen: BigInt(dto.amount_fen),
-          description: dto.description || null,
-          fee_item_periods: periodIds.length
-            ? { create: periodIds.map((fee_period_id) => ({ fee_period_id })) }
-            : undefined,
-        },
-      });
-      await this.audit.log({
-        actorType: 'admin', actorId: user.id, action: 'fee-item.create', resourceType: 'fee_item',
-        resourceId: item.id, result: 'success', requestId, ip,
-        metadata: { code: item.code, campus_id: campus.id, amount_fen: dto.amount_fen },
-      });
-      return item;
-    } catch (e: any) {
-      if (e?.code === 'P2002') throw new ConflictException({ code: 'ERR_DUPLICATE_CODE', message: '收费项目编码已存在' });
-      throw e;
+    // 收费项目编码由后台自动生成（前端隐藏，不手工输入）
+    const code = await this.genUniqueFeeItemCode();
+    const item = await this.prisma.feeItem.create({
+      data: {
+        code,
+        name: dto.name,
+        course_id: dto.course_id || null,
+        campus_id: campus.id,
+        amount_fen: BigInt(dto.amount_fen),
+        description: dto.description || null,
+        fee_item_periods: periodIds.length
+          ? { create: periodIds.map((fee_period_id) => ({ fee_period_id })) }
+          : undefined,
+      },
+    });
+    await this.audit.log({
+      actorType: 'admin', actorId: user.id, action: 'fee-item.create', resourceType: 'fee_item',
+      resourceId: item.id, result: 'success', requestId, ip,
+      metadata: { code: item.code, campus_id: campus.id, amount_fen: dto.amount_fen },
+    });
+    return item;
+  }
+
+  /** 生成全局唯一的收费项目编码（后台自动管理，前端隐藏） */
+  private async genUniqueFeeItemCode(): Promise<string> {
+    for (let i = 0; i < 5; i++) {
+      const code = `FI${this.crypto.randomHex(4).toUpperCase()}`;
+      const exists = await this.prisma.feeItem.findUnique({ where: { code } });
+      if (!exists) return code;
     }
+    // 极小概率连续碰撞时兜底：时间戳后缀
+    return `FI${Date.now().toString(36).toUpperCase()}${this.crypto.randomHex(2).toUpperCase()}`;
   }
 
   async updateFeeItem(user: AdminUserInfo, id: string, dto: UpdateFeeItemDto, requestId: string, ip: string) {

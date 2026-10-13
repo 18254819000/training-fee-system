@@ -16,8 +16,7 @@ export class UpdateCourseDto {
 }
 
 export class CreateFeeItemDto {
-  @ApiProperty({ example: 'FEE-TUITION' }) @IsString() @IsNotEmpty() @MaxLength(32) code!: string;
-  @ApiProperty({ example: '学费' }) @IsString() @IsNotEmpty() @MaxLength(100) name!: string;
+  @ApiProperty({ example: '日语 N5 班' }) @IsString() @IsNotEmpty() @MaxLength(100) name!: string;
   @ApiPropertyOptional() @IsOptional() @IsString() course_id?: string;
   @ApiProperty({ description: '所属校区 ID（收费项目只属于一个校区）' })
   @IsString() @IsNotEmpty()

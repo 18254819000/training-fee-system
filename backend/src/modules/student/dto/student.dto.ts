@@ -52,10 +52,9 @@ export class CreateImportJobDto {
   fee_period_id?: string;
 }
 
-// Excel/CSV 模板列：姓名*, 校区编码, 班级/年级, 家长手机号*, 内部学号*, 收费项目编码*
-// （与前端 CSV 模板列一致；上传时未指定 campus_id 则按行读取校区编码）
-// 内部学号必填：作为"校区+学号"去重唯一键；手机号/收费项目必填：登录与账单生成依赖
-export const IMPORT_TEMPLATE_HEADERS = ['姓名*', '校区编码', '班级/年级', '家长手机号*', '内部学号*', '收费项目编码*'];
+// 收费项目内导入模板列：姓名*, 家长手机号*, 班级/年级
+// 导入即分班：行自动绑定该收费项目及其校区；去重/匹配标准为 校区+手机号+姓名
+export const FEE_ITEM_IMPORT_HEADERS = ['姓名*', '家长手机号*', '班级/年级'];
 
 export class StudentQueryDto extends PaginationDto {
   @ApiPropertyOptional({ description: '校区 ID' })

@@ -64,31 +64,31 @@ export class StudentController {
     return this.service.update(user, id, dto, requestId, ip);
   }
 
-  // ─── Excel 导入 ───
+  // ─── 收费项目内学生导入（导入即分班；全局导入已下线） ───
 
-  @Get('admin/import-jobs/template')
+  @Get('admin/fee-items/:feeItemId/import/template')
   @Permissions(PERM.STUDENT_IMPORT)
-  @ApiOperation({ summary: '下载学生导入模板' })
-  async template(@Res() res: Response) {
-    const buf = await this.service.buildTemplate();
+  @ApiOperation({ summary: '下载收费项目内学生导入模板（姓名/手机号/班级）' })
+  async feeItemTemplate(@Res() res: Response) {
+    const buf = await this.service.buildFeeItemTemplate();
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', 'attachment; filename="student-import-template.xlsx"');
+    res.setHeader('Content-Disposition', 'attachment; filename="fee-item-student-template.xlsx"');
     res.send(buf);
   }
 
-  @Post('admin/import-jobs')
+  @Post('admin/fee-items/:feeItemId/import')
   @Permissions(PERM.STUDENT_IMPORT)
   @UseInterceptors(FileInterceptor('file', { storage: memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } }))
   @ApiConsumes('multipart/form-data')
-  @ApiOperation({ summary: '上传 Excel/CSV 并创建导入任务（返回校验预览）' })
-  upload(
+  @ApiOperation({ summary: '上传 Excel/CSV 并创建项目内导入任务（返回校验预览；导入即分班）' })
+  uploadFeeItem(
     @CurrentUser() user: AdminUserInfo,
+    @Param('feeItemId') feeItemId: string,
     @UploadedFile() file: Express.Multer.File,
-    @Body() body: { campus_id?: string; fee_period_id?: string },
     @RequestId() requestId: string,
     @ClientIp() ip: string,
   ) {
-    return this.service.uploadPreview(user, body?.campus_id, body?.fee_period_id, file, requestId, ip);
+    return this.service.uploadFeeItemPreview(user, feeItemId, file, requestId, ip);
   }
 
   @Get('admin/import-jobs/:id')
@@ -100,14 +100,14 @@ export class StudentController {
 
   @Post('admin/import-jobs/:id/commit')
   @Permissions(PERM.STUDENT_IMPORT)
-  @ApiOperation({ summary: '确认导入（只写入有效行）' })
+  @ApiOperation({ summary: '确认导入（新增不存在的学生；已存在的按手机号+姓名匹配后转入本项目）' })
   commit(
     @CurrentUser() user: AdminUserInfo,
     @Param('id') id: string,
     @RequestId() requestId: string,
     @ClientIp() ip: string,
   ) {
-    return this.service.commit(user, id, requestId, ip);
+    return this.service.commitFeeItemImport(user, id, requestId, ip);
   }
 
   @Get('admin/import-jobs/:id/errors')

@@ -61,7 +61,7 @@
     <el-dialog v-model="issueVisible" title="批量签发登录码" width="600px">
       <el-form ref="issueFormRef" :model="issueForm" :rules="issueRules" label-width="96px">
         <el-form-item label="选择学生" prop="studentIds">
-          <el-select v-model="issueForm.studentIds" multiple filterable placeholder="选择要签发的学生" style="width: 100%">
+          <el-select ref="loginCodeStudentSelect" v-model="issueForm.studentIds" multiple filterable placeholder="选择要签发的学生" style="width: 100%" @change="loginCodeStudentSelect?.blur()">
             <el-option v-for="s in students" :key="s.id" :label="`${s.name}${s.studentNo ? `(${s.studentNo})` : ''}`"
               :value="s.id" />
           </el-select>
@@ -128,6 +128,7 @@ import { adminApi, toArray, toPage } from '../api/admin'
 import { LOGIN_CODE_STATUS_TEXT, formatDateTime, statusText } from '../utils/format'
 import type { LoginCode, Student } from '../api/types'
 import type { NormalizedError } from '../api/client'
+const loginCodeStudentSelect = ref()
 
 interface IssuedCode {
   studentId: string

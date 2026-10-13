@@ -48,7 +48,9 @@ export interface FeePeriod {
   startDate: string;
   endDate: string;
   status: FeePeriodStatus;
-  campusIds?: string[];
+  campusId: string;
+  campusName?: string;
+  campus?: { id: string; code: string; name: string };
   createdAt: string;
   updatedAt: string;
 }
@@ -63,7 +65,11 @@ export interface Student {
   name: string;
   campusId: string;
   campusName?: string;
+  feeItemId?: string;
+  feeItemName?: string;
   gradeOrClass?: string;
+  /** 脱敏后的家长手机号（如 138****1111） */
+  guardianPhone?: string;
   status: StudentStatus;
   createdAt: string;
   updatedAt: string;
@@ -96,22 +102,16 @@ export interface FeeItem {
   code: string;
   name: string;
   description?: string;
-  status: 'active' | 'inactive';
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface CampusFeePrice {
-  id: string;
-  feeItemId: string;
-  feeItemName?: string;
   campusId: string;
   campusName?: string;
-  /** 分 */
+  campus?: { id: string; code: string; name: string };
+  /** 价格（分） */
   amountFen: number;
-  effectiveFrom: string;
-  effectiveTo?: string;
+  status: 'active' | 'inactive';
+  /** 已绑定的收费期 */
+  feePeriods?: Array<{ id: string; code: string; name: string; status: string }>;
   createdAt: string;
+  updatedAt: string;
 }
 
 // ---------- 账单 ----------
@@ -283,6 +283,10 @@ export interface ImportJob {
   totalRows: number;
   validRows: number;
   errorRows: number;
+  /** 有效行中新增数量（项目内导入） */
+  newRows?: number;
+  /** 有效行中更新数量（项目内导入：已存在的学生转入本项目） */
+  updateRows?: number;
   errors?: Array<{ row: number; field?: string; message: string }>;
   createdAt: string;
 }
