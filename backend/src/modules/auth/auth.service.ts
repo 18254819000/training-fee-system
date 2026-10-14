@@ -375,4 +375,41 @@ export class AuthService {
     if (name.length === 2) return name[0] + '*';
     return name[0] + '*'.repeat(name.length - 2) + name[name.length - 1];
   }
+
+  /** 小程序 code 换 openid 并绑定到当前会话的家长 */
+  async mpBind(code: string, authHeader: string | undefined, requestId: string) {
+    if (!code) {
+      throw new BadRequestException({ code: 'ERR_BAD_REQUEST', message: '缺少 code' });
+    }
+    // 从 Authorization: Bearer <sessionToken> 解析会话
+    const token = authHeader?.replace(/^Bearer\s+/i, '');
+    if (!token) {
+      throw new UnauthorizedException({ code: 'ERR_UNAUTHORIZED', message: '未登录' });
+    }
+    const session = await this.prisma.studentSession.findFirst({
+      where: { token_hash: this.crypto.hashToken(token) },
+    });
+    if (!session || !session.guardian_id) {
+      throw new UnauthorizedException({ code: 'ERR_UNAUTHORIZED', message: '会话无效' });
+    }
+
+    // 用 code 换 openid（需要小程序 AppID + AppSecret）
+    const appid = process.env.MP_APPID || '';
+    const secret = process.env.MP_APPSECRET || '';
+    if (!appid || !secret) {
+      throw new BadRequestException({ code: 'ERR_MP_NOT_CONFIGURED', message: '小程序尚未配置 AppID/AppSecret' });
+    }
+    const url = `https://api.weixin.qq.com/sns/jscode2session?appid=${appid}&secret=${secret}&js_code=${code}&grant_type=authorization_code`;
+    const res = await fetch(url);
+    const data = await res.json() as any;
+    if (!data.openid) {
+      throw new BadRequestException({ code: 'ERR_MP_CODE', message: `换取 openid 失败：${data.errmsg || '未知错误'}` });
+    }
+
+    await this.prisma.guardian.update({
+      where: { id: session.guardian_id },
+      data: { wechat_openid: data.openid },
+    });
+    return { openid: data.openid };
+  }
 }

@@ -1,4 +1,4 @@
-import { Body, Controller, HttpCode, HttpStatus, Post, Req, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Headers, HttpCode, HttpStatus, Post, Req, Res, UseGuards } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { AuthService } from './auth.service';
@@ -90,6 +90,17 @@ export class AuthController {
     @RequestId() requestId: string,
   ) {
     return this.auth.phoneLogin(dto, res, ip, requestId);
+  }
+
+  @Post('auth/mp-bind')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '学生端：小程序 code 换 openid 并绑定到当前会话的家长' })
+  mpBind(
+    @Body() dto: { code: string },
+    @Headers('authorization') auth: string | undefined,
+    @RequestId() requestId: string,
+  ) {
+    return this.auth.mpBind(dto.code, auth, requestId);
   }
 
   @Public()
