@@ -329,6 +329,9 @@ export class AuthService {
     res.cookie(STUDENT_SESSION_COOKIE, token, this.sessionCookieOptions());
 
     return {
+      // 响应体也返回 token：微信内置浏览器可能拦截跨域 Cookie，
+      // 前端存入 localStorage 后走 Authorization: Bearer 兼容通道
+      sessionToken: token,
       students: matched.map((s) => ({
         id: s.id,
         name: this.maskName(s.name),
