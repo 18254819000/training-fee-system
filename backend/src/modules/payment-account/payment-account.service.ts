@@ -49,6 +49,7 @@ export class PaymentAccountService {
       private_key_configured: !!a.private_key_secret_ref,
       apiv3_secret_configured: !!a.apiv3_secret_ref,
       platform_key_configured: !!a.platform_key_config_ref,
+      app_secret_configured: !!a.app_secret_ref,
       notify_url: a.notify_url,
       refund_policy: a.refund_policy,
       remark: a.remark,
@@ -113,6 +114,7 @@ export class PaymentAccountService {
         private_key_secret_ref: privateKeyRef || null,
         apiv3_secret_ref: this.toSecretRef(body.apiv3Secret || body.apiv3_secret, 'APIv3 密钥') || null,
         platform_key_config_ref: this.toSecretRef(body.platformKey || body.platform_key, '平台公钥') || null,
+        app_secret_ref: this.toSecretRef(body.appSecret || body.app_secret, '小程序 AppSecret') || null,
         notify_url: String(body.notifyUrl || body.notify_url).trim(),
         refund_policy: body.refundPolicy || body.refund_policy || null,
         remark: body.remark || null,
@@ -159,6 +161,8 @@ export class PaymentAccountService {
     if (apiv3 !== undefined) data.apiv3_secret_ref = apiv3;
     const plat = this.toSecretRef(body.platformKey ?? body.platform_key, '平台公钥');
     if (plat !== undefined) data.platform_key_config_ref = plat;
+    const appSec = this.toSecretRef(body.appSecret ?? body.app_secret, '小程序 AppSecret');
+    if (appSec !== undefined) data.app_secret_ref = appSec;
 
     // 启用中账户的关键字段变更 → 回退为草稿，需重新 validate + activate
     const criticalChanged = data.app_id !== undefined || data.mch_id !== undefined ||

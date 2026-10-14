@@ -411,6 +411,8 @@ model PaymentAccount {
   private_key_secret_ref  String?              @db.Text
   apiv3_secret_ref        String?              @db.Text
   platform_key_config_ref String?              @db.Text
+  // 小程序 AppSecret（code 换 openid 用），同样加密存储
+  app_secret_ref          String?              @db.Text
   notify_url              String               @db.VarChar(255)
   refund_policy           String?              @db.VarChar(500)
   remark                  String?              @db.VarChar(500)

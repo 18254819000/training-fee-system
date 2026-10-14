@@ -393,12 +393,16 @@ export class AuthService {
       throw new UnauthorizedException({ code: 'ERR_UNAUTHORIZED', message: '会话无效' });
     }
 
-    // 用 code 换 openid（需要小程序 AppID + AppSecret）
-    const appid = process.env.MP_APPID || '';
-    const secret = process.env.MP_APPSECRET || '';
-    if (!appid || !secret) {
-      throw new BadRequestException({ code: 'ERR_MP_NOT_CONFIGURED', message: '小程序尚未配置 AppID/AppSecret' });
+    // 用 code 换 openid：从启用的支付账号取 appid + appsecret
+    const account = await this.prisma.paymentAccount.findFirst({
+      where: { status: 'active', app_secret_ref: { not: null } },
+      orderBy: { updated_at: 'desc' },
+    });
+    if (!account?.app_secret_ref) {
+      throw new BadRequestException({ code: 'ERR_MP_NOT_CONFIGURED', message: '支付账号尚未配置小程序 AppSecret' });
     }
+    const appid = account.app_id;
+    const secret = this.crypto.resolveSecretRef(account.app_secret_ref, '小程序 AppSecret');
     const url = `https://api.weixin.qq.com/sns/jscode2session?appid=${appid}&secret=${secret}&js_code=${code}&grant_type=authorization_code`;
     const res = await fetch(url);
     const data = await res.json() as any;
