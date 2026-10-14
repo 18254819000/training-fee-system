@@ -243,7 +243,9 @@ export class PaymentAccountService {
         } else if (label === 'APIv3 密钥') {
           check(`${label}长度合规`, plain.length === 32, plain.length === 32 ? undefined : `长度 ${plain.length}，应为 32 字符`);
         } else {
-          check(`${label}为有效 PEM`, /BEGIN (.*)PUBLIC KEY/.test(plain), /BEGIN (.*)PUBLIC KEY/.test(plain) ? undefined : '不是有效的 PEM 公钥');
+          // 平台证书(CERTIFICATE)或微信支付公钥(PUBLIC KEY)都是合法 PEM；用户常误填公钥ID，给出明确提示
+          const isPem = /BEGIN (.*)(PUBLIC KEY|CERTIFICATE)/.test(plain);
+          check(`${label}为有效 PEM`, isPem, isPem ? undefined : '不是有效的 PEM（请粘贴证书/公钥的 PEM 内容，而非公钥ID）');
         }
       } catch (e: any) {
         check(`${label}可解析`, false, e.message);
