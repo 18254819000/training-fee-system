@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsIn, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
+import { PaginationDto } from '../../../common/dto/pagination.dto';
 
 export class CreateFeePeriodDto {
   @ApiProperty({ example: 'FP2026A' })
@@ -55,6 +56,21 @@ export class UpdateFeePeriodDto {
   status?: 'draft' | 'open' | 'closed';
 
   @ApiPropertyOptional({ description: '所属校区 ID（仅无账单且无收费项目绑定时可变更）' })
+  @IsOptional()
+  @IsString()
+  campus_id?: string;
+}
+
+// 列表查询 DTO：必须继承 PaginationDto（不能用 PaginationDto & {...} 交叉类型，
+// 交叉类型在运行时反射为 Object，会导致 ValidationPipe 的 @Type(() => Number)
+// 转换失效，pageSize 保持字符串，Prisma take 接字符串直接 500）
+export class FeePeriodQueryDto extends PaginationDto {
+  @ApiPropertyOptional({ example: 'open' })
+  @IsOptional()
+  @IsString()
+  status?: string;
+
+  @ApiPropertyOptional({ example: 'cmv7fxpxy002ngg21y8175y36' })
   @IsOptional()
   @IsString()
   campus_id?: string;

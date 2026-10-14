@@ -5,6 +5,7 @@ import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
+import { ErrorLogStore } from './common/error-log/error-log.store';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
 
@@ -31,7 +32,7 @@ async function bootstrap() {
     new ValidationPipe({ whitelist: true, forbidNonWhitelisted: false, transform: true }),
   );
   // 统一错误格式 { code, message, requestId }
-  app.useGlobalFilters(new HttpExceptionFilter());
+  app.useGlobalFilters(new HttpExceptionFilter(app.get(ErrorLogStore)));
   // 出参转换：snake_case → camelCase，BigInt → Number
   app.useGlobalInterceptors(new TransformInterceptor());
 

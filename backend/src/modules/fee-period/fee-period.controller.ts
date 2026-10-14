@@ -1,12 +1,11 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { FeePeriodService } from './fee-period.service';
-import { CreateFeePeriodDto, UpdateFeePeriodDto } from './dto/fee-period.dto';
+import { CreateFeePeriodDto, FeePeriodQueryDto, UpdateFeePeriodDto } from './dto/fee-period.dto';
 import { AdminJwtGuard } from '../../common/guards/admin-jwt.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Permissions } from '../../common/decorators/auth.decorators';
 import { ClientIp, CurrentUser, RequestId } from '../../common/decorators/request.decorators';
-import { PaginationDto } from '../../common/dto/pagination.dto';
 import { AdminUserInfo, PERM } from '../../common/types';
 
 @ApiTags('管理端-收费期')
@@ -21,7 +20,7 @@ export class FeePeriodController {
   @ApiOperation({ summary: '收费期列表' })
   list(
     @CurrentUser() user: AdminUserInfo,
-    @Query() query: PaginationDto & { status?: string; campus_id?: string },
+    @Query() query: FeePeriodQueryDto,
   ) {
     return this.service.list(user, query);
   }

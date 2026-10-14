@@ -3,8 +3,8 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { CampusScopeService } from '../../common/guards/campus-scope.service';
 import { AuditService } from '../audit/audit.service';
 import { AdminUserInfo } from '../../common/types';
-import { paginate, PaginationDto } from '../../common/dto/pagination.dto';
-import { CreateFeePeriodDto, UpdateFeePeriodDto } from './dto/fee-period.dto';
+import { paginate } from '../../common/dto/pagination.dto';
+import { CreateFeePeriodDto, FeePeriodQueryDto, UpdateFeePeriodDto } from './dto/fee-period.dto';
 
 const NEXT_STATUS: Record<string, string[]> = {
   draft: ['open'],
@@ -22,7 +22,7 @@ export class FeePeriodService {
     private readonly audit: AuditService,
   ) {}
 
-  async list(user: AdminUserInfo, query: PaginationDto & { status?: string; campus_id?: string }) {
+  async list(user: AdminUserInfo, query: FeePeriodQueryDto) {
     const page = query.page || 1;
     const pageSize = query.pageSize || 20;
     const scopeFilter = this.scope.scopeFilter(user);
