@@ -78,8 +78,13 @@ export class AuthService {
     });
 
     const roles = admin.admin_user_roles.map((r) => r.role.code);
+    const roleNames = admin.admin_user_roles.map((r) => r.role.name);
     const permissions = Array.from(new Set(admin.admin_user_roles.flatMap((r) => (r.role.permissions as string[]) || [])));
     const accessToken = this.jwt.sign({ sub: admin.id, username: admin.username });
+    const campusIds = admin.admin_user_campuses.map((c) => c.campus_id);
+    const campusList = campusIds.length > 0
+      ? await this.prisma.campus.findMany({ where: { id: { in: campusIds } }, select: { id: true, name: true } })
+      : [];
 
     await this.audit.log({ actorType: 'admin', actorId: admin.id, action: 'admin.login', result: 'success', requestId, ip });
     return {
@@ -90,14 +95,30 @@ export class AuthService {
         id: admin.id,
         username: admin.username,
         roles,
+        role_names: roleNames,
         permissions,
-        campus_ids: admin.admin_user_campuses.map((c) => c.campus_id),
+        campus_ids: campusIds,
+        campuses: campusList,
       },
     };
   }
 
   async adminLogout(adminId: string, requestId: string, ip: string) {
     await this.audit.log({ actorType: 'admin', actorId: adminId, action: 'admin.logout', result: 'success', requestId, ip });
+    return { ok: true };
+  }
+
+  /** 管理员修改自己的密码：验证旧密码后更新 */
+  async changePassword(adminId: string, oldPassword: string, newPassword: string, requestId: string, ip: string) {
+    const admin = await this.prisma.adminUser.findUnique({ where: { id: adminId } });
+    if (!admin) throw new BadRequestException({ code: 'ERR_NOT_FOUND', message: '账号不存在' });
+    const ok = await bcrypt.compare(oldPassword, admin.password_hash);
+    if (!ok) throw new BadRequestException({ code: 'ERR_PASSWORD_WRONG', message: '当前密码不正确' });
+    await this.prisma.adminUser.update({
+      where: { id: adminId },
+      data: { password_hash: await bcrypt.hash(newPassword, 10), failed_logins: 0, locked_until: null },
+    });
+    await this.audit.log({ actorType: 'admin', actorId: adminId, action: 'admin.change_password', result: 'success', requestId, ip });
     return { ok: true };
   }
 

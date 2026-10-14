@@ -2,7 +2,7 @@ import { Body, Controller, HttpCode, HttpStatus, Post, Req, Res, UseGuards } fro
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { AuthService } from './auth.service';
-import { AdminLoginDto, BindDto, ExchangeCodeDto, PhoneLoginDto, STUDENT_SESSION_COOKIE } from './dto/auth.dto';
+import { AdminLoginDto, BindDto, ChangePasswordDto, ExchangeCodeDto, PhoneLoginDto, STUDENT_SESSION_COOKIE } from './dto/auth.dto';
 import { Public } from '../../common/decorators/auth.decorators';
 import { AdminJwtGuard } from '../../common/guards/admin-jwt.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -40,6 +40,19 @@ export class AuthController {
     @ClientIp() ip: string,
   ) {
     return this.auth.adminLogout(user.id, requestId, ip);
+  }
+
+  @Post('admin/auth/change-password')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(AdminJwtGuard, RolesGuard)
+  @ApiOperation({ summary: '修改自己的登录密码' })
+  changePassword(
+    @CurrentUser() user: AdminUserInfo,
+    @Body() dto: ChangePasswordDto,
+    @RequestId() requestId: string,
+    @ClientIp() ip: string,
+  ) {
+    return this.auth.changePassword(user.id, dto.old_password, dto.new_password, requestId, ip);
   }
 
   @Public()

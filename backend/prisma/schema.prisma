@@ -407,9 +407,10 @@ model PaymentAccount {
   mch_id                  String               @db.VarChar(32)
   merchant_cert_serial    String?              @db.VarChar(128)
   // 以下三项只存引用：env:VAR_NAME / enc:v1:... / kms:...，绝不存明文
-  private_key_secret_ref  String?              @db.VarChar(255)
-  apiv3_secret_ref        String?              @db.VarChar(255)
-  platform_key_config_ref String?              @db.VarChar(255)
+  // 用 TEXT：上传私钥文件加密后可达 2KB+，VarChar(255) 会溢出 500
+  private_key_secret_ref  String?              @db.Text
+  apiv3_secret_ref        String?              @db.Text
+  platform_key_config_ref String?              @db.Text
   notify_url              String               @db.VarChar(255)
   refund_policy           String?              @db.VarChar(500)
   remark                  String?              @db.VarChar(500)

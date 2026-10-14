@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsString, Matches, MaxLength } from 'class-validator';
+import { IsNotEmpty, IsString, Matches, MaxLength, MinLength } from 'class-validator';
 
 export class AdminLoginDto {
   @ApiProperty({ example: 'admin' })
@@ -40,3 +40,17 @@ export class PhoneLoginDto {
 
 /** 学生端会话 Cookie 名（前端 withCredentials 自动携带） */
 export const STUDENT_SESSION_COOKIE = 'tfs_session';
+
+export class ChangePasswordDto {
+  @ApiProperty({ description: '当前密码' })
+  @IsString()
+  @IsNotEmpty()
+  old_password!: string;
+
+  @ApiProperty({ description: '新密码（至少 6 位）' })
+  @IsString()
+  @IsNotEmpty()
+  @MinLength(6, { message: '新密码至少 6 位' })
+  @MaxLength(128)
+  new_password!: string;
+}

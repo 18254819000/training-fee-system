@@ -9,6 +9,7 @@ import { AuditService } from '../audit/audit.service';
 import { AdminUserInfo } from '../../common/types';
 import { paginate, PaginationDto } from '../../common/dto/pagination.dto';
 import { GenerateInvoiceDto, InvoiceQueryDto } from './dto/invoice.dto';
+import { createHash } from 'crypto';
 
 // 账单服务：后台生成账单（家长确认缴费模式）
 // 新链路：校区 → 收费期 → 收费项目 → 预览 → 一键生成
@@ -114,7 +115,9 @@ export class InvoiceService {
   /** 批量生成账单（幂等）：校区 → 收费期 → 收费项目，每名学生按其绑定的收费项目生成 */
   async generate(user: AdminUserInfo, dto: GenerateInvoiceDto, requestId: string, ip: string) {
     const itemKey = (dto.fee_item_ids || []).slice().sort().join(',');
-    const key = dto.idempotency_key || `invoice-batch:${user.id}:${dto.campus_id}:${dto.fee_period_id}:${itemKey}:${Date.now()}`;
+    const rawKey = dto.idempotency_key || `invoice-batch:${user.id}:${dto.campus_id}:${dto.fee_period_id}:${itemKey}:${Date.now()}`;
+    // idempotency_keys.key 列限长 128，收费项目多时原始 key 会超长 → 超长时用 sha256 压缩
+    const key = rawKey.length <= 100 ? rawKey : `invoice-batch:${createHash('sha256').update(rawKey).digest('hex')}`;
     return this.idempotency.execute('invoice-batch', key, 3600, async () => {
       const { campus, period, targets, skipped } = await this.resolveTargets(user, dto);
       const lines = targets.map((t) => this.toBillLine(t.student, t.feeItem));

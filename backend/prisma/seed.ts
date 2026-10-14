@@ -16,15 +16,23 @@ async function main() {
   console.log('🌱 开始写入种子数据…');
 
   // ─── 1. 角色（权限码以后端 PERM 为准） ───
+  // 2026-10-14：去掉财务角色；校区管理员除校区管理(campus:write)、管理员与角色(admin-user:manage) 外拥有其余全部权限
   const roles: Array<{ code: string; name: string; permissions: string[] }> = [
     { code: 'super_admin', name: '超级管理员', permissions: ['*'] },
     {
-      code: 'finance', name: '财务',
-      permissions: ['invoice:read', 'invoice:void', 'payment:read', 'payment:reconcile', 'refund:apply', 'refund:submit', 'report:read', 'export', 'payment-account:read'],
-    },
-    {
       code: 'campus_admin', name: '校区管理员',
-      permissions: ['campus:read', 'student:read', 'student:write', 'student:import', 'fee-period:read', 'fee-item:read', 'invoice:read', 'invoice:generate', 'report:read'],
+      permissions: [
+        'campus:read',
+        'fee-period:read', 'fee-period:write',
+        'student:read', 'student:write', 'student:import',
+        'fee-item:read', 'fee-item:write',
+        'invoice:read', 'invoice:generate', 'invoice:void',
+        'payment:read', 'payment:reconcile',
+        'refund:apply', 'refund:submit',
+        'report:read', 'export',
+        'payment-account:read', 'payment-account:manage',
+        'audit:read',
+      ],
     },
     {
       code: 'operator', name: '操作员',
@@ -38,7 +46,14 @@ async function main() {
       create: r,
     });
   }
-  console.log('  ✓ 角色 4 个');
+  console.log('  ✓ 角色 3 个（super_admin / campus_admin / operator）');
+  // 删除已下线的财务角色（含其用户关联）
+  const financeRole = await prisma.role.findUnique({ where: { code: 'finance' } });
+  if (financeRole) {
+    await prisma.adminUserRole.deleteMany({ where: { role_id: financeRole.id } });
+    await prisma.role.delete({ where: { id: financeRole.id } });
+    console.log('  ✓ 已删除财务角色');
+  }
 
   // ─── 2. 超管（admin / Admin@123456） ───
   const adminPassword = process.env.SEED_ADMIN_PASSWORD || 'Admin@123456';

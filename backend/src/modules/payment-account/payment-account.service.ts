@@ -83,9 +83,11 @@ export class PaymentAccountService {
 
   private toSecretRef(plain: string | undefined | null, fieldName: string): string | undefined {
     if (plain === undefined || plain === null || plain === '') return undefined; // 空 = 不修改/不设置
+    // FormData 经 JSON.parse 后纯数字会变成 number，先转字符串再处理
+    const s = String(plain);
     // 直接存加密引用；若用户填的是 env:VAR_NAME 形式则原样保留为引用
-    if (/^(env|kms):/.test(plain.trim())) return plain.trim();
-    return this.crypto.encryptField(plain) || undefined;
+    if (/^(env|kms):/.test(s.trim())) return s.trim();
+    return this.crypto.encryptField(s) || undefined;
   }
 
   async create(
