@@ -29,11 +29,15 @@ export class IdempotencyService {
 
     try {
       const result = await fn();
+      // BigInt（如 Prisma 的 amount_fen）无法被 JSON.stringify 序列化，先转 Number
+      const safeJson = JSON.parse(JSON.stringify(result ?? null, (_, v) =>
+        typeof v === 'bigint' ? Number(v) : v,
+      )) as any;
       await this.prisma.idempotencyKey.update({
         where: { key },
-        data: { response_json: JSON.parse(JSON.stringify(result ?? null)) as any },
+        data: { response_json: safeJson },
       });
-      return { result, replayed: false };
+      return { result: safeJson, replayed: false };
     } catch (err) {
       // 执行失败则删除占位，允许重试
       await this.prisma.idempotencyKey.delete({ where: { key } }).catch(() => undefined);

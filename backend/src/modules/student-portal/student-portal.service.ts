@@ -8,6 +8,33 @@ import { StudentSessionInfo } from '../../common/types';
 export class StudentPortalService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /** Prisma 账单 → 学生端 Invoice DTO（扁平化，前端直接渲染） */
+  private toInvoiceDto(inv: any) {
+    return {
+      id: inv.id,
+      invoiceNo: inv.invoice_no,
+      studentId: inv.student_id,
+      studentName: inv.student?.name,
+      campusId: inv.campus_id,
+      campusName: inv.campus?.name,
+      feePeriodId: inv.fee_period_id,
+      feePeriodName: inv.fee_period?.name,
+      items: (inv.invoice_items || []).map((it: any) => ({
+        feeItemId: it.fee_item_id,
+        itemNameSnapshot: it.item_name_snapshot,
+        unitPriceFen: Number(it.unit_price_fen),
+        quantity: it.quantity,
+        lineAmountFen: Number(it.line_amount_fen),
+      })),
+      amountDueFen: Number(inv.amount_due_fen),
+      amountPaidFen: Number(inv.amount_paid_fen),
+      amountRefundedFen: Number(inv.amount_refunded_fen || 0),
+      status: inv.status,
+      createdAt: inv.created_at,
+      updatedAt: inv.updated_at,
+    };
+  }
+
   private assertStudent(session: StudentSessionInfo, studentId: string | undefined) {
     if (studentId && !session.studentIds.includes(studentId)) {
       throw new ForbiddenException({ code: 'ERR_FORBIDDEN', message: '无权访问该学员' });
@@ -49,14 +76,17 @@ export class StudentPortalService {
     this.assertStudent(session, studentId);
     const where: any = { student_id: { in: studentId ? [studentId] : session.studentIds } };
     if (query.fee_period_id) where.fee_period_id = query.fee_period_id;
-    return this.prisma.invoice.findMany({
+    const list = await this.prisma.invoice.findMany({
       where,
       include: {
+        student: { select: { id: true, name: true } },
+        campus: { select: { id: true, name: true } },
         fee_period: { select: { id: true, name: true, start_date: true, end_date: true } },
         invoice_items: true,
       },
       orderBy: { created_at: 'desc' },
     });
+    return list.map((inv) => this.toInvoiceDto(inv));
   }
 
   /** 账单详情（含明细快照） */
@@ -74,7 +104,7 @@ export class StudentPortalService {
     if (!invoice || !session.studentIds.includes(invoice.student_id)) {
       throw new NotFoundException({ code: 'ERR_NOT_FOUND', message: '账单不存在' });
     }
-    return invoice;
+    return this.toInvoiceDto(invoice);
   }
 
   /** 我的支付历史（纯数组） */
