@@ -98,12 +98,14 @@ export class ReportService {
     const invoicePaid = Number(invoices._sum.amount_paid_fen || 0n);
     const collected = Number(orders._sum.amount_fen || 0n);
     const refunded = Number(refunds._sum.amount_fen || 0n);
+    // 字段名与管理端 CollectionStats 对齐（snake_case，经拦截器转 camelCase）：
+    // received_fen=实收，pending_fen=待收，order_count=账单数
     return {
       receivable_fen: receivable,
-      collected_fen: collected,
+      received_fen: collected,
       refunded_fen: refunded,
-      outstanding_fen: Math.max(0, receivable - invoicePaid),
-      invoice_count: invoices._count,
+      pending_fen: Math.max(0, receivable - invoicePaid),
+      order_count: invoices._count,
       paid_order_count: orders._count,
       refund_count: refunds._count,
       invoice_status: statusGroups.map((g) => ({ status: g.status, count: g._count })),
