@@ -284,13 +284,14 @@ export class PaymentAccountService {
       }
     }
 
-    // 真实模式：实际调用微信支付 API 拉取平台证书，验证商户号/证书/密钥有效性
+    // 真实模式：实际调用微信支付 API 验证商户号/证书/密钥有效性
     const isMock = (process.env.WECHAT_PAY_MODE || 'mock') === 'mock';
     if (!isMock && account.environment === 'production') {
       try {
         const privateKeyPem = this.crypto.resolveSecretRef(account.private_key_secret_ref, '商户私钥');
         const apiv3Key = this.crypto.resolveSecretRef(account.apiv3_secret_ref, 'APIv3 密钥');
         const platformKeyPem = this.crypto.resolveSecretRef(account.platform_key_config_ref, '平台公钥');
+        const isPublicKeyMode = /BEGIN PUBLIC KEY/.test(platformKeyPem);
         const adapter = new RealWechatPayAdapter();
         const certs = await adapter.fetchPlatformCertificates(account.mch_id!, {
           privateKeyPem,
@@ -302,11 +303,26 @@ export class PaymentAccountService {
           certs.length > 0 ? `成功获取 ${certs.length} 张平台证书` : '接口返回空证书列表');
       } catch (e: any) {
         const msg = e.message?.slice(0, 200) || '未知错误';
-        // 401 验签失败几乎总是"私钥与序列号不是同一套证书"或"商户号错误"
-        const hint = /401/.test(msg)
-          ? '（请核对：①商户号是否正确 ②上传的 apiclient_key.pem 与序列号是否来自同一张证书 ③证书是否已过期/被更换。可在本地用 openssl 对比：openssl rsa -in apiclient_key.pem -pubout | openssl sha256 与 openssl x509 -in apiclient_cert.pem -pubkey -noout | openssl sha256 的哈希应一致）'
-          : '';
-        check('微信平台证书拉取', false, `拉取失败：${msg}${hint}`);
+        // 401 验签失败：私钥与序列号不匹配或商户号错误
+        if (/401/.test(msg)) {
+          check('微信平台证书拉取', false,
+            `拉取失败：${msg}（请核对：①商户号是否正确 ②上传的 apiclient_key.pem 与序列号是否来自同一张证书 ③证书是否已过期/被更换）`);
+        } else if (/404/.test(msg)) {
+          // 404 无可用平台证书：签名已通过（凭证正确）。
+          // 若用户用的是"微信支付公钥"模式，本来就没有平台证书，这是正常的 → 通过
+          try {
+            const pkPem = this.crypto.resolveSecretRef(account.platform_key_config_ref, '平台公钥');
+            if (/BEGIN PUBLIC KEY/.test(pkPem)) {
+              check('微信平台证书拉取', true, '签名验证通过；当前为微信支付公钥模式，无需平台证书');
+            } else {
+              check('微信平台证书拉取', false, `拉取失败：${msg}（平台证书模式需先在商户平台下载平台证书）`);
+            }
+          } catch {
+            check('微信平台证书拉取', false, `拉取失败：${msg}`);
+          }
+        } else {
+          check('微信平台证书拉取', false, `拉取失败：${msg}`);
+        }
       }
     } else {
       check('微信平台连通性', true, isMock ? 'Mock 模式：跳过真实连通性检查' : '测试环境：跳过');
