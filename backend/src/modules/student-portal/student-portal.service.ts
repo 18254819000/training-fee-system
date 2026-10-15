@@ -120,13 +120,23 @@ export class StudentPortalService {
     });
   }
 
-  /** 课程列表（按校区编码，用于小程序首页展示） */
-  async coursesByCampus(campusCode: string) {
-    if (!campusCode) return [];
-    const campus = await this.prisma.campus.findUnique({ where: { code: campusCode } });
-    if (!campus) return [];
+  /** 课程列表（小程序首页展示）：默认取学员所在校区的启用收费项目，也可按校区编码查询 */
+  async coursesByCampus(session: StudentSessionInfo, campusCode?: string) {
+    let campusIds: string[];
+    if (campusCode) {
+      const campus = await this.prisma.campus.findUnique({ where: { code: campusCode } });
+      if (!campus) return [];
+      campusIds = [campus.id];
+    } else {
+      const students = await this.prisma.student.findMany({
+        where: { id: { in: session.studentIds } },
+        select: { campus_id: true },
+      });
+      campusIds = [...new Set(students.map((s) => s.campus_id))];
+      if (campusIds.length === 0) return [];
+    }
     const items = await this.prisma.feeItem.findMany({
-      where: { campus_id: campus.id, status: 'active' },
+      where: { campus_id: { in: campusIds }, status: 'active' },
       select: { id: true, name: true, description: true, amount_fen: true },
       orderBy: { created_at: 'asc' },
     });

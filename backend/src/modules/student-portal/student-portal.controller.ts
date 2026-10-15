@@ -42,9 +42,12 @@ export class StudentPortalController {
   }
 
   @Get('courses')
-  @ApiOperation({ summary: '课程列表（按校区编码，如 000000）' })
-  courses(@Query('campusCode') campusCode: string) {
-    return this.service.coursesByCampus(campusCode);
+  @ApiOperation({ summary: '课程列表（学员所在校区的收费项目；也可按校区编码查询）' })
+  courses(
+    @CurrentStudentSession() session: StudentSessionInfo,
+    @Query('campusCode') campusCode?: string,
+  ) {
+    return this.service.coursesByCampus(session, campusCode);
   }
 
   @Get('payment-history')
