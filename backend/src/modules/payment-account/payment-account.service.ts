@@ -5,6 +5,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { AuditService } from '../audit/audit.service';
 import { AdminUserInfo } from '../../common/types';
+import { RealWechatPayAdapter } from '../wechat-pay/wechat-pay.adapter';
 
 // 微信支付账户配置：密钥只存引用（enc:v1:...），永不回显明文
 // 流程：创建草稿 → 上传密钥/填写 → validate 自检 → activate 启用 → disable 停用
@@ -256,10 +257,25 @@ export class PaymentAccountService {
       }
     }
 
-    // 真实模式可尝试拉取微信平台证书（结构预留；无网络/无真实商户时跳过）
+    // 真实模式：实际调用微信支付 API 拉取平台证书，验证商户号/证书/密钥有效性
     const isMock = (process.env.WECHAT_PAY_MODE || 'mock') === 'mock';
     if (!isMock && account.environment === 'production') {
-      check('微信平台证书拉取', false, '真实模式证书拉取待接入真实商户号后实现');
+      try {
+        const privateKeyPem = this.crypto.resolveSecretRef(account.private_key_secret_ref, '商户私钥');
+        const apiv3Key = this.crypto.resolveSecretRef(account.apiv3_secret_ref, 'APIv3 密钥');
+        const platformKeyPem = this.crypto.resolveSecretRef(account.platform_key_config_ref, '平台公钥');
+        const adapter = new RealWechatPayAdapter();
+        const certs = await adapter.fetchPlatformCertificates(account.mch_id!, {
+          privateKeyPem,
+          certSerial: account.merchant_cert_serial!,
+          apiv3Key,
+          platformPublicKeyPem: platformKeyPem,
+        });
+        check('微信平台证书拉取', certs.length > 0,
+          certs.length > 0 ? `成功获取 ${certs.length} 张平台证书` : '接口返回空证书列表');
+      } catch (e: any) {
+        check('微信平台证书拉取', false, `拉取失败：${e.message?.slice(0, 200)}`);
+      }
     } else {
       check('微信平台连通性', true, isMock ? 'Mock 模式：跳过真实连通性检查' : '测试环境：跳过');
     }

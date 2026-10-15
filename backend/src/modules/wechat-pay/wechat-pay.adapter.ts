@@ -216,8 +216,7 @@ export class RealWechatPayAdapter implements WechatPayAdapter {
     };
   }
 
-  async queryOrder(outTradeNo: string, mchId: string, ctx: AdapterContext): Promise<OrderQueryResult> {
-    const path = `/v3/pay/transactions/out-trade-no/${outTradeNo}?mchid=${mchId}`;
+  async queryOrder(outTradeNo: string, mchId: string, ctx: AdapterContext): Promise<OrderQueryResult> {    const path = `/v3/pay/transactions/out-trade-no/${outTradeNo}?mchid=${mchId}`;
     const json = await this.api('GET', path, mchId, ctx);
     const state = String(json.trade_state || 'UNKNOWN');
     const map: Record<string, OrderQueryResult['tradeState']> = {
@@ -226,8 +225,18 @@ export class RealWechatPayAdapter implements WechatPayAdapter {
     return {
       tradeState: map[state] || 'UNKNOWN',
       transactionId: json.transaction_id,
-      amountFen: json.amount?.payer_total,
-    };
+      amountFen: json.amount?.payer_total,    };
+  }
+
+  /** 拉取微信支付平台证书列表（GET /v3/certificates），用于启用前自检 */
+  async fetchPlatformCertificates(mchId: string, ctx: AdapterContext): Promise<Array<{ serial_no: string; effective_time: string; expire_time: string }>> {
+    const json = await this.api('GET', '/v3/certificates', mchId, ctx);
+    const data = Array.isArray(json.data) ? json.data : [];
+    return data.map((c: any) => ({
+      serial_no: String(c.serial_no || ''),
+      effective_time: String(c.effective_time || ''),
+      expire_time: String(c.expire_time || ''),
+    }));
   }
 
   async verifyNotify(
