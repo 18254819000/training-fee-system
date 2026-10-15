@@ -1,5 +1,5 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { Body, Controller, Delete, Get, Param, Patch, Post, UploadedFiles, UseGuards, UseInterceptors } from '@nestjs/common';
+import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { PaymentAccountService } from './payment-account.service';
@@ -32,33 +32,39 @@ export class PaymentAccountController {
 
   @Post()
   @Permissions(PERM.PAYMENT_ACCOUNT_MANAGE)
-  @UseInterceptors(FileInterceptor('privateKeyFile', { storage: memoryStorage(), limits: { fileSize: 64 * 1024 } }))
+  @UseInterceptors(FileFieldsInterceptor([
+    { name: 'privateKeyFile', maxCount: 1 },
+    { name: 'certFile', maxCount: 1 },
+  ], { storage: memoryStorage(), limits: { fileSize: 64 * 1024 } }))
   @ApiConsumes('multipart/form-data', 'application/json')
-  @ApiOperation({ summary: '创建支付账户（草稿）；私钥走 privateKeyFile 文件字段，APIv3/平台公钥走文本字段，仅存加密引用' })
+  @ApiOperation({ summary: '创建支付账户（草稿）；私钥走 privateKeyFile，证书走 certFile（自动提取序列号），APIv3/平台公钥走文本字段，仅存加密引用' })
   create(
     @CurrentUser() user: AdminUserInfo,
     @Body() body: Record<string, any>,
-    @UploadedFile() keyFile: Express.Multer.File | undefined,
+    @UploadedFiles() files: { privateKeyFile?: Express.Multer.File[]; certFile?: Express.Multer.File[] },
     @RequestId() requestId: string,
     @ClientIp() ip: string,
   ) {
-    return this.service.create(user, body, keyFile, requestId, ip);
+    return this.service.create(user, body, files?.privateKeyFile?.[0], files?.certFile?.[0], requestId, ip);
   }
 
   @Patch(':id')
   @Permissions(PERM.PAYMENT_ACCOUNT_MANAGE)
-  @UseInterceptors(FileInterceptor('privateKeyFile', { storage: memoryStorage(), limits: { fileSize: 64 * 1024 } }))
+  @UseInterceptors(FileFieldsInterceptor([
+    { name: 'privateKeyFile', maxCount: 1 },
+    { name: 'certFile', maxCount: 1 },
+  ], { storage: memoryStorage(), limits: { fileSize: 64 * 1024 } }))
   @ApiConsumes('multipart/form-data', 'application/json')
   @ApiOperation({ summary: '更新支付账户；密钥字段留空表示不修改；关键字段变更会使启用中账户回退为草稿' })
   update(
     @CurrentUser() user: AdminUserInfo,
     @Param('id') id: string,
     @Body() body: Record<string, any>,
-    @UploadedFile() keyFile: Express.Multer.File | undefined,
+    @UploadedFiles() files: { privateKeyFile?: Express.Multer.File[]; certFile?: Express.Multer.File[] },
     @RequestId() requestId: string,
     @ClientIp() ip: string,
   ) {
-    return this.service.update(user, id, body, keyFile, requestId, ip);
+    return this.service.update(user, id, body, files?.privateKeyFile?.[0], files?.certFile?.[0], requestId, ip);
   }
 
   @Post(':id/validate')

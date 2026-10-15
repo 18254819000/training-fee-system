@@ -95,6 +95,7 @@ export class PaymentAccountService {
   async create(
     user: AdminUserInfo, rawBody: Record<string, any>,
     keyFile: Express.Multer.File | undefined,
+    certFile: Express.Multer.File | undefined,
     requestId: string, ip: string,
   ) {
     const body = this.parseFields(rawBody);
@@ -105,11 +106,13 @@ export class PaymentAccountService {
     if (keyFile?.buffer) {
       const pemText = keyFile.buffer.toString('utf8');
       privateKeyRef = this.toSecretRef(pemText, '商户私钥');
-      // 如果上传的是证书文件（apiclient_cert.pem），自动提取序列号，免去手抄
-      if (!certSerial && /BEGIN CERTIFICATE/.test(pemText)) {
+    }
+    // 上传证书文件（apiclient_cert.pem）时自动提取序列号
+    if (certFile?.buffer) {
+      const certPem = certFile.buffer.toString('utf8');
+      if (/BEGIN CERTIFICATE/.test(certPem)) {
         try {
-          const cert = new (require('crypto').X509Certificate)(pemText);
-          // X509Certificate.serialNumber 为十六进制（可能带冒号分隔），微信要求大写无分隔
+          const cert = new (require('crypto').X509Certificate)(certPem);
           certSerial = cert.serialNumber.replace(/:/g, '').toUpperCase();
         } catch { /* 解析失败则保持手动填写 */ }
       }
@@ -146,6 +149,7 @@ export class PaymentAccountService {
   async update(
     user: AdminUserInfo, id: string, rawBody: Record<string, any>,
     keyFile: Express.Multer.File | undefined,
+    certFile: Express.Multer.File | undefined,
     requestId: string, ip: string,
   ) {
     const existing = await this.prisma.paymentAccount.findUnique({ where: { id } });
@@ -170,10 +174,13 @@ export class PaymentAccountService {
     if (keyFile?.buffer) {
       const pemText = keyFile.buffer.toString('utf8');
       data.private_key_secret_ref = this.toSecretRef(pemText, '商户私钥');
-      // 上传证书文件时自动提取序列号（若未手动填写）
-      if (data.merchant_cert_serial === undefined && /BEGIN CERTIFICATE/.test(pemText)) {
+    }
+    // 上传证书文件时自动提取序列号
+    if (certFile?.buffer) {
+      const certPem = certFile.buffer.toString('utf8');
+      if (/BEGIN CERTIFICATE/.test(certPem)) {
         try {
-          const cert = new (require('crypto').X509Certificate)(pemText);
+          const cert = new (require('crypto').X509Certificate)(certPem);
           data.merchant_cert_serial = cert.serialNumber.replace(/:/g, '').toUpperCase();
         } catch { /* 解析失败则保持原值 */ }
       }
