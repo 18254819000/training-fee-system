@@ -304,10 +304,10 @@ export class PaymentAccountService {
       } catch (e: any) {
         const msg = e.message?.slice(0, 200) || '未知错误';
         // 401 验签失败：私钥与序列号不匹配或商户号错误
-        if (/401/.test(msg)) {
+        if (/API 错误 401/.test(msg)) {
           check('微信平台证书拉取', false,
             `拉取失败：${msg}（请核对：①商户号是否正确 ②上传的 apiclient_key.pem 与序列号是否来自同一张证书 ③证书是否已过期/被更换）`);
-        } else if (/404/.test(msg)) {
+        } else if (/API 错误 404/.test(msg)) {
           // 404 无可用平台证书：签名已通过（凭证正确）。
           // 若用户用的是"微信支付公钥"模式，本来就没有平台证书，这是正常的 → 通过
           try {
