@@ -294,7 +294,12 @@ export class PaymentAccountService {
         check('微信平台证书拉取', certs.length > 0,
           certs.length > 0 ? `成功获取 ${certs.length} 张平台证书` : '接口返回空证书列表');
       } catch (e: any) {
-        check('微信平台证书拉取', false, `拉取失败：${e.message?.slice(0, 200)}`);
+        const msg = e.message?.slice(0, 200) || '未知错误';
+        // 401 验签失败几乎总是"私钥与序列号不是同一套证书"或"商户号错误"
+        const hint = /401/.test(msg)
+          ? '（请核对：①商户号是否正确 ②上传的 apiclient_key.pem 与序列号是否来自同一张证书 ③证书是否已过期/被更换。可在本地用 openssl 对比：openssl rsa -in apiclient_key.pem -pubout | openssl sha256 与 openssl x509 -in apiclient_cert.pem -pubkey -noout | openssl sha256 的哈希应一致）'
+          : '';
+        check('微信平台证书拉取', false, `拉取失败：${msg}${hint}`);
       }
     } else {
       check('微信平台连通性', true, isMock ? 'Mock 模式：跳过真实连通性检查' : '测试环境：跳过');
