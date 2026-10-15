@@ -314,9 +314,9 @@ export class AuthService {
       }
     });
 
+    // 未录入的手机号也允许登录：建空学生列表的会话，前端仅展示空状态（无账单）
     if (matched.length === 0) {
-      await this.audit.log({ actorType: 'student', action: 'phone-login', result: 'fail', requestId, ip, metadata: { reason: 'not_found' } });
-      throw new BadRequestException({ code: 'ERR_PHONE_NOT_FOUND', message: '该手机号未绑定学生，请联系学校' });
+      await this.audit.log({ actorType: 'student', action: 'phone-login', result: 'success', requestId, ip, metadata: { reason: 'empty_session' } });
     }
 
     // 建会话（含该手机号下所有学生 ID）
