@@ -416,4 +416,38 @@ export class AuthService {
     });
     return { openid: data.openid };
   }
+
+  /** 小程序 getPhoneNumber 的 code 换真实手机号 */
+  async mpPhone(code: string) {
+    if (!code) {
+      throw new BadRequestException({ code: 'ERR_BAD_REQUEST', message: '缺少 code' });
+    }
+    const account = await this.prisma.paymentAccount.findFirst({
+      where: { status: 'active', app_secret_ref: { not: null } },
+      orderBy: { updated_at: 'desc' },
+    });
+    if (!account?.app_secret_ref) {
+      throw new BadRequestException({ code: 'ERR_MP_NOT_CONFIGURED', message: '支付账号尚未配置小程序 AppSecret' });
+    }
+    // 先用 jscode2session 换 access_token（需小程序 appid/secret）
+    const appid = account.app_id;
+    const secret = this.crypto.resolveSecretRef(account.app_secret_ref, '小程序 AppSecret');
+    const tokenUrl = `https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid=${appid}&secret=${secret}`;
+    const tokenRes = await fetch(tokenUrl);
+    const tokenData = await tokenRes.json() as any;
+    if (!tokenData.access_token) {
+      throw new BadRequestException({ code: 'ERR_MP_TOKEN', message: `获取 access_token 失败：${tokenData.errmsg || '未知错误'}` });
+    }
+    const url = `https://api.weixin.qq.com/wxa/business/getuserphonenumber?access_token=${tokenData.access_token}`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code }),
+    });
+    const data = await res.json() as any;
+    if (data.errcode !== 0 || !data.phone_info?.phoneNumber) {
+      throw new BadRequestException({ code: 'ERR_MP_PHONE', message: `获取手机号失败：${data.errmsg || '未知错误'}` });
+    }
+    return { phone: data.phone_info.phoneNumber };
+  }
 }

@@ -41,6 +41,12 @@ export class StudentPortalController {
     return this.service.invoiceDetail(student, id);
   }
 
+  @Get('courses')
+  @ApiOperation({ summary: '课程列表（按校区编码，如 000000）' })
+  courses(@Query('campusCode') campusCode: string) {
+    return this.service.coursesByCampus(campusCode);
+  }
+
   @Get('payment-history')
   @ApiOperation({ summary: '我的支付历史' })
   myPaymentHistory(@CurrentStudentSession() student: StudentSessionInfo) {

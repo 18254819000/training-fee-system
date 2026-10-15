@@ -17,6 +17,7 @@ export class StudentPortalService {
       studentName: inv.student?.name,
       campusId: inv.campus_id,
       campusName: inv.campus?.name,
+      campusContactPhone: inv.campus?.contact_phone,
       feePeriodId: inv.fee_period_id,
       feePeriodName: inv.fee_period?.name,
       items: (inv.invoice_items || []).map((it: any) => ({
@@ -80,7 +81,7 @@ export class StudentPortalService {
       where,
       include: {
         student: { select: { id: true, name: true } },
-        campus: { select: { id: true, name: true } },
+        campus: { select: { id: true, name: true, contact_phone: true } },
         fee_period: { select: { id: true, name: true, start_date: true, end_date: true } },
         invoice_items: true,
       },
@@ -117,5 +118,23 @@ export class StudentPortalService {
       orderBy: { created_at: 'desc' },
       take: 100,
     });
+  }
+
+  /** 课程列表（按校区编码，用于小程序首页展示） */
+  async coursesByCampus(campusCode: string) {
+    if (!campusCode) return [];
+    const campus = await this.prisma.campus.findUnique({ where: { code: campusCode } });
+    if (!campus) return [];
+    const items = await this.prisma.feeItem.findMany({
+      where: { campus_id: campus.id, status: 'active' },
+      select: { id: true, name: true, description: true, amount_fen: true },
+      orderBy: { created_at: 'asc' },
+    });
+    return items.map((it) => ({
+      id: it.id,
+      name: it.name,
+      description: it.description,
+      amountFen: Number(it.amount_fen),
+    }));
   }
 }

@@ -103,6 +103,13 @@ export class AuthController {
     return this.auth.mpBind(dto.code, auth, requestId);
   }
 
+  @Post('auth/mp-phone')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '学生端：小程序 getPhoneNumber 的 code 换真实手机号' })
+  mpPhone(@Body() dto: { code: string }) {
+    return this.auth.mpPhone(dto.code);
+  }
+
   @Public()
   @Post('auth/logout')
   @HttpCode(HttpStatus.OK)
