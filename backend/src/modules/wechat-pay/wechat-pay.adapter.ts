@@ -169,7 +169,8 @@ export class RealWechatPayAdapter implements WechatPayAdapter {
   private buildAuthorization(mchId: string, serialNo: string, privateKeyPem: string, method: string, url: string, body: string): string {
     const timestamp = Math.floor(Date.now() / 1000).toString();
     const nonce = crypto.randomBytes(16).toString('hex');
-    const message = `${timestamp}\n${nonce}\n${method}\n${url}\n${body}\n`;
+    // 微信支付 APIv3 签名串顺序：HTTP方法\nURL\n时间戳\n随机串\n报文主体\n
+    const message = `${method}\n${url}\n${timestamp}\n${nonce}\n${body}\n`;
     const signature = crypto.sign('sha256', Buffer.from(message, 'utf8'), privateKeyPem).toString('base64');
     return `WECHATPAY2-SHA256-RSA2048 mchid="${mchId}",nonce_str="${nonce}",signature="${signature}",timestamp="${timestamp}",serial_no="${serialNo}"`;
   }
