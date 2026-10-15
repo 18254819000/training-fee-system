@@ -101,8 +101,18 @@ export class PaymentAccountService {
     this.validateBasicFields(body, true);
 
     let privateKeyRef: string | undefined;
+    let certSerial = body.merchantCertSerial || body.merchant_cert_serial || null;
     if (keyFile?.buffer) {
-      privateKeyRef = this.toSecretRef(keyFile.buffer.toString('utf8'), '商户私钥');
+      const pemText = keyFile.buffer.toString('utf8');
+      privateKeyRef = this.toSecretRef(pemText, '商户私钥');
+      // 如果上传的是证书文件（apiclient_cert.pem），自动提取序列号，免去手抄
+      if (!certSerial && /BEGIN CERTIFICATE/.test(pemText)) {
+        try {
+          const cert = new (require('crypto').X509Certificate)(pemText);
+          // X509Certificate.serialNumber 为十六进制（可能带冒号分隔），微信要求大写无分隔
+          certSerial = cert.serialNumber.replace(/:/g, '').toUpperCase();
+        } catch { /* 解析失败则保持手动填写 */ }
+      }
     }
 
     const account = await this.prisma.paymentAccount.create({
@@ -111,7 +121,7 @@ export class PaymentAccountService {
         environment: body.environment,
         app_id: String(body.appId || body.app_id).trim(),
         mch_id: String(body.mchId || body.mch_id).trim(),
-        merchant_cert_serial: body.merchantCertSerial || body.merchant_cert_serial || null,
+        merchant_cert_serial: certSerial,
         private_key_secret_ref: privateKeyRef || null,
         apiv3_secret_ref: this.toSecretRef(body.apiv3Secret || body.apiv3_secret, 'APIv3 密钥') || null,
         platform_key_config_ref: this.toSecretRef(body.platformKey || body.platform_key, '平台公钥') || null,
@@ -157,7 +167,17 @@ export class PaymentAccountService {
       data.refund_policy = body.refundPolicy ?? body.refund_policy ?? null;
     }
     if (body.remark !== undefined) data.remark = body.remark || null;
-    if (keyFile?.buffer) data.private_key_secret_ref = this.toSecretRef(keyFile.buffer.toString('utf8'), '商户私钥');
+    if (keyFile?.buffer) {
+      const pemText = keyFile.buffer.toString('utf8');
+      data.private_key_secret_ref = this.toSecretRef(pemText, '商户私钥');
+      // 上传证书文件时自动提取序列号（若未手动填写）
+      if (data.merchant_cert_serial === undefined && /BEGIN CERTIFICATE/.test(pemText)) {
+        try {
+          const cert = new (require('crypto').X509Certificate)(pemText);
+          data.merchant_cert_serial = cert.serialNumber.replace(/:/g, '').toUpperCase();
+        } catch { /* 解析失败则保持原值 */ }
+      }
+    }
     const apiv3 = this.toSecretRef(body.apiv3Secret ?? body.apiv3_secret, 'APIv3 密钥');
     if (apiv3 !== undefined) data.apiv3_secret_ref = apiv3;
     const plat = this.toSecretRef(body.platformKey ?? body.platform_key, '平台公钥');
