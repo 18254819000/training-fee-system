@@ -178,7 +178,11 @@ export class RealWechatPayAdapter implements WechatPayAdapter {
   private async api(method: string, path: string, mchId: string, ctx: AdapterContext, body?: any) {
     const bodyStr = body ? JSON.stringify(body) : '';
     const auth = this.buildAuthorization(mchId, ctx.certSerial, ctx.privateKeyPem, method, path, bodyStr);
-    const headers: Record<string, string> = { Authorization: auth };
+    const headers: Record<string, string> = {
+      Authorization: auth,
+      Accept: 'application/json',
+      'Accept-Language': 'zh-CN',
+    };
     if (bodyStr) headers['Content-Type'] = 'application/json';
     const res = await fetch(`${API_BASE}${path}`, {
       method,
