@@ -41,6 +41,32 @@ export class WechatPayService {
     return this.isMockMode() ? this.mockAdapter : this.realAdapter;
   }
 
+  /** 供退款服务调用微信退款接口（真实模式） */
+  async createWechatRefund(
+    account: {
+      private_key_secret_ref: string | null;
+      apiv3_secret_ref: string | null;
+      platform_key_config_ref: string | null;
+      merchant_cert_serial: string | null;
+      mch_id: string | null;
+      notify_url: string | null;
+      app_id: string | null;
+    },
+    req: {
+      outTradeNo: string;
+      outRefundNo: string;
+      reason: string;
+      refundFen: number;
+      totalFen: number;
+    },
+  ) {
+    const ctx = this.buildContext(account);
+    return this.adapter().createRefund(
+      { ...req, appId: account.app_id || '', mchId: account.mch_id || '', notifyUrl: account.notify_url || undefined },
+      ctx,
+    );
+  }
+
   /** 由支付账户配置构造适配器上下文（密钥只经引用解析，不落日志） */
   private buildContext(account: {
     private_key_secret_ref: string | null;

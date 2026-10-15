@@ -124,11 +124,39 @@ export class RefundService {
       return updated;
     }
 
-    // 真实模式：调用微信退款接口（结构已预留）
-    throw new BadRequestException({
-      code: 'ERR_NOT_IMPLEMENTED',
-      message: '真实微信退款提交需在接入真实商户号后启用（当前为 Mock 模式）',
-    });
+    // 真实模式：调用微信退款接口
+    try {
+      const result = await this.wechatPay.createWechatRefund(account, {
+        outTradeNo: refund.payment_order.out_trade_no,
+        outRefundNo: refund.refund_no,
+        reason: refund.reason || '用户申请退款',
+        refundFen: Number(refund.amount_fen),
+        totalFen: Number(refund.payment_order.amount_fen),
+      });
+      const updated = await this.prisma.refund.update({
+        where: { id: refund.id },
+        data: {
+          status: 'submitted',
+          wechat_refund_id: result.refundId,
+        },
+      });
+      await this.audit.log({
+        actorType: 'admin', actorId: user.id, action: 'refund.submit',
+        resourceType: 'refund', resourceId: id, result: 'success', requestId, ip,
+        metadata: { mode: 'real', wechatRefundId: result.refundId, status: result.status },
+      });
+      return updated;
+    } catch (e: any) {
+      await this.audit.log({
+        actorType: 'admin', actorId: user.id, action: 'refund.submit',
+        resourceType: 'refund', resourceId: id, result: 'fail', requestId, ip,
+        metadata: { mode: 'real', error: e.message?.slice(0, 200) },
+      });
+      throw new BadRequestException({
+        code: 'ERR_REFUND_SUBMIT',
+        message: `微信退款提交失败：${e.message?.slice(0, 200) || '未知错误'}`,
+      });
+    }
   }
 
   // ─── 同步退款状态（查单） ───
