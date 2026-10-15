@@ -175,11 +175,41 @@ export class RefundService {
       // Mock 模式：以本地记录为准，不对外查询
       return { refund_id: id, status: refund.status, synced: true, mode: 'mock' };
     }
-    // 真实模式：调用微信查询退款接口后 finalize（预留）
-    throw new BadRequestException({
-      code: 'ERR_NOT_IMPLEMENTED',
-      message: '真实退款查单需在接入真实商户号后启用',
-    });
+    // 真实模式：调用微信查询退款接口（GET /v3/refund/domestic/refunds/{out_refund_no}）
+    const account = refund.payment_order.payment_account;
+    try {
+      const result = await this.wechatPay.queryWechatRefund(account, refund.refund_no);
+      const wxStatus = String(result.status || '').toUpperCase();
+      if (wxStatus === 'SUCCESS') {
+        // 与退款通知同一落定路径：退款单 success，账单 refunded、累计已退金额
+        await this.wechatPay.finalizeRefund(refund.refund_no, null, requestId);
+        return { refund_id: id, status: 'success', synced: true, wechat_status: wxStatus };
+      }
+      if (wxStatus === 'CLOSED' || wxStatus === 'ABNORMAL') {
+        // 退款关闭/异常：款未退，本地标记，账单从 refunding 恢复为 paid
+        const localStatus = wxStatus === 'CLOSED' ? 'closed' : 'failed';
+        await this.prisma.$transaction(async (tx) => {
+          await tx.refund.update({ where: { id: refund.id }, data: { status: localStatus } });
+          const invoice = refund.payment_order.invoice;
+          if (invoice.status === 'refunding') {
+            await tx.invoice.update({ where: { id: invoice.id }, data: { status: 'paid' } });
+          }
+        });
+        await this.audit.log({
+          actorType: 'admin', actorId: user.id, action: 'refund.sync',
+          resourceType: 'refund', resourceId: id, result: 'success', requestId,
+          metadata: { wechatStatus: wxStatus, localStatus },
+        });
+        return { refund_id: id, status: localStatus, synced: true, wechat_status: wxStatus };
+      }
+      // PROCESSING 等中间态：保持 submitted，等待微信通知或下次同步
+      return { refund_id: id, status: refund.status, synced: true, wechat_status: wxStatus };
+    } catch (e: any) {
+      throw new BadRequestException({
+        code: 'ERR_REFUND_SYNC',
+        message: `微信退款查单失败：${e.message?.slice(0, 200) || '未知错误'}`,
+      });
+    }
   }
 
   /** Mock 专用：模拟微信退款成功回调（联调测试） */

@@ -67,6 +67,21 @@ export class WechatPayService {
     );
   }
 
+  /** 供退款服务查询微信退款状态（真实模式，同步/查单用） */
+  async queryWechatRefund(
+    account: {
+      private_key_secret_ref: string | null;
+      apiv3_secret_ref: string | null;
+      platform_key_config_ref: string | null;
+      merchant_cert_serial: string | null;
+      mch_id: string | null;
+    },
+    outRefundNo: string,
+  ) {
+    const ctx = this.buildContext(account);
+    return this.adapter().queryRefund(outRefundNo, account.mch_id || '', ctx);
+  }
+
   /** 由支付账户配置构造适配器上下文（密钥只经引用解析，不落日志） */
   private buildContext(account: {
     private_key_secret_ref: string | null;
