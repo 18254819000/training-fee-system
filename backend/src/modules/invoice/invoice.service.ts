@@ -81,6 +81,7 @@ export class InvoiceService {
   async preview(user: AdminUserInfo, dto: GenerateInvoiceDto) {
     const { campus, period, feeItems, targets, skipped } = await this.resolveTargets(user, dto);
     const lines = targets.map((t) => this.toBillLine(t.student, t.feeItem));
+    const regenSet = new Set(targets.filter((t) => t.regenerated).map((t) => t.student.id));
     const totalFen = lines.reduce((s, l) => s + l.total_fen, 0);
     return {
       preview: true,
@@ -95,7 +96,7 @@ export class InvoiceService {
           fee_item_name: fi.name,
           amount_fen: Number(fi.amount_fen),
           count: ls.length,
-          students: ls.map((l) => ({ student_id: l.student_id, student_name: l.student_name })),
+          students: ls.map((l) => ({ student_id: l.student_id, student_name: l.student_name, regenerated: regenSet.has(l.student_id) })),
         };
       }).filter((g) => g.count > 0),
       students: lines.map((l) => ({
@@ -105,6 +106,7 @@ export class InvoiceService {
         fee_item_id: l.fee_item_id,
         fee_item_name: l.fee_item_name,
         amount_fen: l.total_fen,
+        regenerated: regenSet.has(l.student_id),
       })),
       skipped: skipped.map((s) => ({
         student_id: s.student.id, student_name: s.student.name, reason: s.reason,
@@ -250,17 +252,33 @@ export class InvoiceService {
       select: { id: true, name: true, campus_id: true, fee_item_id: true },
     });
 
-    // 5) 幂等预查：排除本期已有账单的学生
+    // 5) 幂等预查：排除本期已有"有效"账单的学生（作废的不占位，允许重新生成）
     const existing = allStudents.length > 0
       ? await this.prisma.invoice.findMany({
-        where: { fee_period_id: period.id, student_id: { in: allStudents.map((s) => s.id) } },
-        select: { student_id: true },
+        where: {
+          fee_period_id: period.id,
+          student_id: { in: allStudents.map((s) => s.id) },
+          status: { not: 'voided' },
+        },
+        select: { student_id: true, status: true },
       })
       : [];
     const existingSet = new Set(existing.map((e) => e.student_id));
+    // 本期仅有作废账单的学生：允许重新生成，预览时给出提示
+    const voidedOnly = allStudents.length > 0
+      ? await this.prisma.invoice.findMany({
+        where: {
+          fee_period_id: period.id,
+          student_id: { in: allStudents.map((s) => s.id) },
+          status: 'voided',
+        },
+        select: { student_id: true },
+      })
+      : [];
+    const voidedOnlySet = new Set(voidedOnly.map((e) => e.student_id));
 
     // 6) 按绑定关系分类
-    type Target = { student: { id: string; name: string; campus_id: string }; feeItem: { id: string; name: string; amount_fen: bigint } };
+    type Target = { student: { id: string; name: string; campus_id: string }; feeItem: { id: string; name: string; amount_fen: bigint }; regenerated: boolean };
     type Skip = { student: { id: string; name: string; campus_id: string }; reason: string };
     const targets: Target[] = [];
     const skipped: Skip[] = [];
@@ -278,7 +296,11 @@ export class InvoiceService {
         skipped.push({ student: s, reason: '绑定的收费项目不在本收费期内' });
         continue;
       }
-      targets.push({ student: s, feeItem: { id: feeItem.id, name: feeItem.name, amount_fen: feeItem.amount_fen } });
+      targets.push({
+        student: s,
+        feeItem: { id: feeItem.id, name: feeItem.name, amount_fen: feeItem.amount_fen },
+        regenerated: voidedOnlySet.has(s.id),
+      });
     }
     return { campus, period, feeItems, targets, skipped };
   }

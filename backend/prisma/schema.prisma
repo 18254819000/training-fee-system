@@ -311,8 +311,7 @@ model Invoice {
   invoice_items  InvoiceItem[]
   payment_orders PaymentOrder[]
 
-  // 同一学生+收费期+账单类型 防重复生成（数据库兜底，验收 F-11）
-  @@unique([student_id, fee_period_id, invoice_type])
+  // 同一学生+收费期+账单类型，作废的不占位（部分唯一索引见 migration，验收 F-11）
   @@index([campus_id, fee_period_id, status])
   @@map("invoices")
 }
