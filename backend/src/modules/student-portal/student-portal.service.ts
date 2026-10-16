@@ -113,7 +113,15 @@ export class StudentPortalService {
     return this.prisma.paymentOrder.findMany({
       where: { invoice: { student_id: { in: session.studentIds } } },
       include: {
-        invoice: { select: { id: true, invoice_no: true, fee_period: { select: { name: true } } } },
+        invoice: {
+          select: {
+            id: true,
+            invoice_no: true,
+            student: { select: { name: true } },
+            fee_period: { select: { name: true } },
+            invoice_items: { select: { item_name_snapshot: true } },
+          },
+        },
       },
       orderBy: { created_at: 'desc' },
       take: 100,
