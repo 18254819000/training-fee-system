@@ -38,6 +38,14 @@ export class StudentSessionGuard implements CanActivate {
       studentIds: (session.student_ids as string[]) || [],
       guardianId: session.guardian_id,
     };
+    // 刷新学生ID：会话创建后学生可能被重建，直接用会话里的会查不到新账单
+    if (info.guardianId) {
+      const links = await this.prisma.studentGuardian.findMany({
+        where: { guardian_id: info.guardianId },
+        select: { student_id: true },
+      });
+      info.studentIds = links.map((l) => l.student_id);
+    }
     req.studentSession = info;
     return true;
   }
