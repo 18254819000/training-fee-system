@@ -25,6 +25,16 @@ export class ReportController {
     return this.service.collections(user, query);
   }
 
+  @Get('fee-period-summary')
+  @Permissions(PERM.REPORT_READ)
+  @ApiOperation({ summary: '收费期缴费统计（按收费项目：人数/已缴/未缴）' })
+  feePeriodSummary(
+    @CurrentUser() user: AdminUserInfo,
+    @Query() query: Record<string, string>,
+  ) {
+    return this.service.feePeriodSummary(user, query);
+  }
+
   @Post('exports')
   @Permissions(PERM.REPORT_READ)
   @ApiOperation({ summary: '创建导出任务（返回 taskId；类型 orders_csv/invoices_csv/students_csv）' })

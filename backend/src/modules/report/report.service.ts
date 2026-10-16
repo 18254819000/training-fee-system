@@ -113,6 +113,70 @@ export class ReportService {
     };
   }
 
+  // ─── 收费期缴费统计：按收费项目分组（人数/已缴/未缴） ───
+
+  async feePeriodSummary(
+    user: AdminUserInfo,
+    query: { fee_period_id?: string; campus_id?: string },
+  ) {
+    const scopeFilter = this.scope.scopeFilter(user);
+    const feePeriodId = query.fee_period_id;
+    if (feePeriodId) {
+      const fp = await this.prisma.feePeriod.findUnique({ where: { id: feePeriodId }, select: { campus_id: true, name: true } });
+      if (!fp) throw new BadRequestException({ code: 'ERR_NOT_FOUND', message: '收费期不存在' });
+      this.scope.assertCampus(user, fp.campus_id, '收费期');
+    }
+    const campusId = query.campus_id;
+    if (campusId) this.scope.assertCampus(user, campusId, '校区');
+    const scopedCampusIds: string[] | null = campusId
+      ? [campusId]
+      : scopeFilter
+        ? scopeFilter.in
+        : null;
+
+    const invoiceWhere: any = { status: { not: 'voided' } };
+    if (scopedCampusIds) invoiceWhere.campus_id = { in: scopedCampusIds };
+    if (feePeriodId) invoiceWhere.fee_period_id = feePeriodId;
+
+    // 按学生绑定的收费项目分组统计账单
+    const invoices = await this.prisma.invoice.findMany({
+      where: invoiceWhere,
+      select: {
+        id: true, status: true,
+        amount_due_fen: true, amount_paid_fen: true,
+        student: { select: { fee_item: { select: { id: true, name: true } } } },
+      },
+    });
+
+    const byItem = new Map<string, {
+      fee_item_id: string; fee_item_name: string;
+      total: number; paid: number; unpaid: number;
+      receivable_fen: number; received_fen: number;
+    }>();
+    for (const inv of invoices) {
+      const fi = inv.student?.fee_item;
+      const key = fi?.id || '__none__';
+      let row = byItem.get(key);
+      if (!row) {
+        row = {
+          fee_item_id: fi?.id || '',
+          fee_item_name: fi?.name || '未绑定课程',
+          total: 0, paid: 0, unpaid: 0,
+          receivable_fen: 0, received_fen: 0,
+        };
+        byItem.set(key, row);
+      }
+      row.total += 1;
+      if (inv.status === 'paid') row.paid += 1;
+      else row.unpaid += 1; // pending/processing 等均计为未缴
+      row.receivable_fen += Number(inv.amount_due_fen || 0n);
+      row.received_fen += Number(inv.amount_paid_fen || 0n);
+    }
+    const items = [...byItem.values()].sort((a, b) => a.fee_item_name.localeCompare(b.fee_item_name, 'zh'));
+    const total = items.reduce((s, r) => ({ total: s.total + r.total, paid: s.paid + r.paid, unpaid: s.unpaid + r.unpaid, receivable_fen: s.receivable_fen + r.receivable_fen, received_fen: s.received_fen + r.received_fen }), { total: 0, paid: 0, unpaid: 0, receivable_fen: 0, received_fen: 0 });
+    return { items, total, filters: { fee_period_id: feePeriodId || null, campus_ids: scopedCampusIds } };
+  }
+
   // ─── 受控导出（任务制） ───
 
   private taskKey(taskId: string): string {

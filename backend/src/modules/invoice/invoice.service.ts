@@ -51,7 +51,7 @@ export class InvoiceService {
       this.prisma.invoice.findMany({
         where,
         include: {
-          student: { select: { id: true, name: true, student_no: true } },
+          student: { select: { id: true, name: true, student_no: true, guardian_phone: true, fee_item: { select: { id: true, name: true } } } },
           campus: { select: { id: true, code: true, name: true } },
           fee_period: { select: { id: true, code: true, name: true } },
         },
@@ -60,7 +60,20 @@ export class InvoiceService {
         take: pageSize,
       }),
     ]);
-    return paginate(items, total, page, pageSize);
+    // 解密学生手机号并附加收费项目名
+    const mapped = items.map((inv: any) => ({
+      ...inv,
+      student: inv.student
+        ? {
+            id: inv.student.id,
+            name: inv.student.name,
+            student_no: inv.student.student_no,
+            phone: this.crypto.decryptField(inv.student.guardian_phone),
+            fee_item: inv.student.fee_item,
+          }
+        : inv.student,
+    }));
+    return paginate(mapped, total, page, pageSize);
   }
 
   async get(user: AdminUserInfo, id: string) {
