@@ -38,13 +38,32 @@ export class StudentSessionGuard implements CanActivate {
       studentIds: (session.student_ids as string[]) || [],
       guardianId: session.guardian_id,
     };
-    // 刷新学生ID：会话创建后学生可能被重建，直接用会话里的会查不到新账单
+    // 实时刷新学生ID：用 guardian 的手机号重新匹配（学生重建后旧ID失效）
     if (info.guardianId) {
-      const links = await this.prisma.studentGuardian.findMany({
-        where: { guardian_id: info.guardianId },
-        select: { student_id: true },
+      const guardian = await this.prisma.guardian.findUnique({
+        where: { id: info.guardianId },
+        select: { phone: true },
       });
-      info.studentIds = links.map((l) => l.student_id);
+      if (guardian?.phone) {
+        try {
+          const phone = this.crypto.decryptField(guardian.phone);
+          const students = await this.prisma.student.findMany({
+            where: { status: 'active', guardian_phone: { not: null } },
+            select: { id: true, guardian_phone: true },
+          });
+          info.studentIds = students
+            .filter((s) => {
+              try {
+                return this.crypto.decryptField(s.guardian_phone) === phone;
+              } catch {
+                return false;
+              }
+            })
+            .map((s) => s.id);
+        } catch {
+          // 解密失败则保留会话原有ID
+        }
+      }
     }
     req.studentSession = info;
     return true;

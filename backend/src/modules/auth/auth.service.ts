@@ -331,8 +331,10 @@ export class AuthService {
       },
     });
 
-    // 建家长绑定关系
-    const guardian = await this.prisma.guardian.create({ data: {} });
+    // 建家长绑定关系（存加密手机号，供会话守卫实时刷新学生列表）
+    const guardian = await this.prisma.guardian.create({
+      data: { phone: this.crypto.encryptField(dto.phone) },
+    });
     await this.prisma.studentSession.update({ where: { id: session.id }, data: { guardian_id: guardian.id } });
     for (const s of matched) {
       await this.prisma.studentGuardian.upsert({
