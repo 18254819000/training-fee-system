@@ -23,6 +23,15 @@ export class ReservationCourseService {
     return new Date() > deadline;
   }
 
+  /** 展示排序：未到期在前（按截止时间升序），已到期沉底 */
+  private sortForDisplay(items: any[]) {
+    const expired = (c: any) => ReservationCourseService.isExpired(c.deadline) ? 1 : 0;
+    return [...items].sort((a, b) =>
+      expired(a) - expired(b) ||
+      new Date(a.deadline).getTime() - new Date(b.deadline).getTime(),
+    );
+  }
+
   /** 公开 DTO：价格转 Number，附带到期标记与校区名（前端直接渲染） */
   private toPublicDto(c: any) {
     return {
@@ -144,7 +153,7 @@ export class ReservationCourseService {
       include: { campus: { select: { id: true, name: true } } },
       orderBy: [{ deadline: 'asc' }, { created_at: 'asc' }],
     });
-    return items.map((it: any) => this.toPublicDto(it));
+    return this.sortForDisplay(items).map((it: any) => this.toPublicDto(it));
   }
 
   async publicDetail(id: string) {
@@ -172,6 +181,6 @@ export class ReservationCourseService {
       include: { campus: { select: { id: true, name: true } } },
       orderBy: [{ deadline: 'asc' }, { created_at: 'asc' }],
     });
-    return items.map((it: any) => this.toPublicDto(it));
+    return this.sortForDisplay(items).map((it: any) => this.toPublicDto(it));
   }
 }
