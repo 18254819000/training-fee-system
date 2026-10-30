@@ -47,6 +47,10 @@ export class RefundService {
         include: { invoice: true },
       });
       if (!order) throw new NotFoundException({ code: 'ERR_NOT_FOUND', message: '支付订单不存在' });
+      // 预约课程订单暂不支持退款（退款单与账单回写强绑定账单）
+      if (!order.invoice) {
+        throw new BadRequestException({ code: 'ERR_REFUND_NOT_SUPPORTED', message: '预约课程订单暂不支持退款' });
+      }
       this.scope.assertCampus(user, order.invoice.campus_id, '退款');
       if (order.status !== 'paid') {
         throw new BadRequestException({ code: 'ERR_REFUND_STATE', message: '仅已支付的订单可以退款' });
@@ -68,6 +72,8 @@ export class RefundService {
       }
 
       const refundNo = this.genRefundNo();
+      // invoiceId 提到事务外：TS 的 narrowing 进不了事务回调，直接用变量才过类型检查
+      const invoiceId = order.invoice.id;
       const refund = await this.prisma.$transaction(async (tx) => {
         const r = await tx.refund.create({
           data: {
@@ -80,7 +86,7 @@ export class RefundService {
           },
         });
         await tx.invoice.update({
-          where: { id: order.invoice_id },
+          where: { id: invoiceId },
           data: { status: 'refunding' },
         });
         return r;
@@ -104,7 +110,7 @@ export class RefundService {
       include: { payment_order: { include: { invoice: true, payment_account: true } } },
     });
     if (!refund) throw new NotFoundException({ code: 'ERR_NOT_FOUND', message: '退款单不存在' });
-    this.scope.assertCampus(user, refund.payment_order.invoice.campus_id, '退款');
+    this.scope.assertCampus(user, refund.payment_order.invoice?.campus_id, '退款');
     if (refund.status !== 'created') {
       throw new BadRequestException({ code: 'ERR_REFUND_STATE', message: `退款单当前状态（${refund.status}）不允许提交` });
     }
@@ -167,7 +173,7 @@ export class RefundService {
       include: { payment_order: { include: { invoice: true, payment_account: true } } },
     });
     if (!refund) throw new NotFoundException({ code: 'ERR_NOT_FOUND', message: '退款单不存在' });
-    this.scope.assertCampus(user, refund.payment_order.invoice.campus_id, '退款');
+    this.scope.assertCampus(user, refund.payment_order.invoice?.campus_id, '退款');
     if (['success', 'closed', 'failed'].includes(refund.status)) {
       return { refund_id: id, status: refund.status, synced: false, reason: '终态退款单无需同步' };
     }
@@ -191,7 +197,7 @@ export class RefundService {
         await this.prisma.$transaction(async (tx) => {
           await tx.refund.update({ where: { id: refund.id }, data: { status: localStatus } });
           const invoice = refund.payment_order.invoice;
-          if (invoice.status === 'refunding') {
+          if (invoice && invoice.status === 'refunding') {
             await tx.invoice.update({ where: { id: invoice.id }, data: { status: 'paid' } });
           }
         });
@@ -271,7 +277,7 @@ export class RefundService {
       },
     });
     if (!refund) throw new NotFoundException({ code: 'ERR_NOT_FOUND', message: '退款单不存在' });
-    this.scope.assertCampus(user, refund.payment_order.invoice.campus_id, '退款');
+    this.scope.assertCampus(user, refund.payment_order.invoice?.campus_id, '退款');
     return refund;
   }
 

@@ -117,6 +117,8 @@ model Campus {
   invoices            Invoice[]
   admin_user_campuses AdminUserCampus[]
   payment_account_campuses PaymentAccountCampus[]
+  reservation_courses ReservationCourse[]
+  reservation_orders  ReservationOrder[]
 
   @@map("campuses")
 }
@@ -166,6 +168,7 @@ model Student {
   login_codes       LoginCode[]
   student_guardians StudentGuardian[]
   invoices          Invoice[]
+  reservation_orders ReservationOrder[]
 
   @@unique([campus_id, student_no])
   @@index([campus_id, status])
@@ -288,6 +291,50 @@ model FeeItemPeriod {
   @@map("fee_item_periods")
 }
 
+// ─── 预约课程（小程序首页展示、可购买；与收费项目/账单体系分离，不走收费期）───
+model ReservationCourse {
+  id          String       @id @default(cuid())
+  campus_id   String
+  campus      Campus       @relation(fields: [campus_id], references: [id], onDelete: Restrict)
+  name        String       @db.VarChar(100)
+  description String?      @db.Text
+  amount_fen  BigInt
+  // 购买截止时间：超过该时刻即到期，不可购买（前后端双重校验）
+  deadline    DateTime
+  status      CampusStatus @default(active)
+  created_at  DateTime     @default(now())
+  updated_at  DateTime     @updatedAt
+
+  orders ReservationOrder[]
+
+  @@index([campus_id])
+  @@map("reservation_courses")
+}
+
+// ─── 预约课程订单（一次购买一条；支付走 PaymentOrder，invoice 为空）───
+model ReservationOrder {
+  id                    String   @id @default(cuid())
+  order_no              String   @unique @db.VarChar(40)
+  student_id            String
+  student               Student  @relation(fields: [student_id], references: [id], onDelete: Restrict)
+  campus_id             String
+  campus                Campus   @relation(fields: [campus_id], references: [id], onDelete: Restrict)
+  reservation_course_id String
+  reservation_course    ReservationCourse @relation(fields: [reservation_course_id], references: [id], onDelete: Restrict)
+  course_name_snapshot  String   @db.VarChar(100)
+  amount_fen            BigInt
+  status                String   @default("pending") @db.VarChar(24) // pending 待支付 / paid 已支付 / cancelled 已取消
+  paid_at               DateTime?
+  created_at            DateTime @default(now())
+  updated_at            DateTime @updatedAt
+
+  payment_orders PaymentOrder[]
+
+  @@index([student_id])
+  @@index([reservation_course_id])
+  @@map("reservation_orders")
+}
+
 // ─── 账单 ───
 
 model Invoice {
@@ -337,8 +384,11 @@ model InvoiceItem {
 model PaymentOrder {
   id                  String             @id @default(cuid())
   out_trade_no        String             @unique @db.VarChar(64)
-  invoice_id          String
-  invoice             Invoice            @relation(fields: [invoice_id], references: [id], onDelete: Restrict)
+  // 账单支付与预约课程支付二选一：账单支付填 invoice_id，课程支付填 reservation_order_id
+  invoice_id          String?
+  invoice             Invoice?           @relation(fields: [invoice_id], references: [id], onDelete: Restrict)
+  reservation_order_id String?
+  reservation_order   ReservationOrder?  @relation(fields: [reservation_order_id], references: [id], onDelete: Restrict)
   payment_account_id  String
   payment_account     PaymentAccount     @relation(fields: [payment_account_id], references: [id], onDelete: Restrict)
   channel             String             @default("WECHAT") @db.VarChar(16)

@@ -211,6 +211,124 @@ export class WechatPayService {
     }).then((r) => r.result);
   }
 
+  // ─── 学生端：购买预约课程 ───
+
+  async createCourseOrder(
+    session: StudentSessionInfo,
+    reservationCourseId: string,
+    studentId: string | undefined,
+    idempotencyKey: string | undefined,
+    requestId: string,
+    ip: string,
+  ) {
+    const key = idempotencyKey || `course-pay-${reservationCourseId}-${studentId}`;
+    return this.idempotency.execute('course-payment-order', key, 900, async () => {
+      const course = await this.prisma.reservationCourse.findUnique({ where: { id: reservationCourseId } });
+      if (!course || course.status !== 'active') {
+        throw new NotFoundException({ code: 'ERR_NOT_FOUND', message: '课程不存在或已下架' });
+      }
+      // 到期校验（以后端时间为准，前端只做展示与拦截）
+      if (new Date() > course.deadline) {
+        throw new BadRequestException({ code: 'ERR_COURSE_EXPIRED', message: '该课程已到期，无法购买' });
+      }
+      if (!studentId || !session.studentIds.includes(studentId)) {
+        throw new ForbiddenException({ code: 'ERR_FORBIDDEN', message: '无权为该学员购买' });
+      }
+      const student = await this.prisma.student.findUnique({ where: { id: studentId } });
+      if (!student || student.status !== 'active') {
+        throw new BadRequestException({ code: 'ERR_STUDENT_INVALID', message: '学员无效或已停用' });
+      }
+      // 校区一致：预约课程只属于一个校区，购买学员须属于该校区
+      if (student.campus_id !== course.campus_id) {
+        throw new ForbiddenException({ code: 'ERR_FORBIDDEN', message: '该课程不属于学员所在校区' });
+      }
+      // 已购保护：同一学员同一课程已支付，拒绝重复购买
+      const paid = await this.prisma.reservationOrder.findFirst({
+        where: { student_id: studentId, reservation_course_id: course.id, status: 'paid' },
+      });
+      if (paid) {
+        throw new BadRequestException({ code: 'ERR_COURSE_ALREADY_PAID', message: '该课程已购买，无需重复购买' });
+      }
+      // 复用该学员该课程的待支付订单（关闭其旧支付单，避免并发有效订单）
+      let resOrder = await this.prisma.reservationOrder.findFirst({
+        where: { student_id: studentId, reservation_course_id: course.id, status: 'pending' },
+        orderBy: { created_at: 'desc' },
+      });
+      if (!resOrder) {
+        resOrder = await this.prisma.reservationOrder.create({
+          data: {
+            order_no: this.genReservationOrderNo(),
+            student_id: studentId,
+            campus_id: course.campus_id,
+            reservation_course_id: course.id,
+            course_name_snapshot: course.name,
+            amount_fen: course.amount_fen,
+            status: 'pending',
+          },
+        });
+      }
+
+      const account = await this.findActiveAccount(course.campus_id);
+      if (!account) {
+        throw new BadRequestException({ code: 'ERR_NO_PAYMENT_ACCOUNT', message: '未配置可用的微信支付账户' });
+      }
+
+      await this.prisma.paymentOrder.updateMany({
+        where: { reservation_order_id: resOrder.id, status: { in: ['created', 'pending'] } },
+        data: { status: 'closed' },
+      });
+
+      const outTradeNo = this.genOutTradeNo();
+      const order = await this.prisma.paymentOrder.create({
+        data: {
+          out_trade_no: outTradeNo,
+          reservation_order_id: resOrder.id,
+          payment_account_id: account.id,
+          channel: 'WECHAT',
+          amount_fen: course.amount_fen,
+          status: 'created',
+        },
+      });
+
+      try {
+        const ctx = this.buildContext(account);
+        let openid: string | undefined;
+        if (session.guardianId) {
+          const guardian = await this.prisma.guardian.findUnique({ where: { id: session.guardianId } });
+          openid = guardian?.wechat_openid || undefined;
+        }
+        const { prepayId, jsapiParams } = await this.adapter().createJsapiOrder(
+          {
+            appId: account.app_id,
+            mchId: account.mch_id,
+            outTradeNo,
+            amountFen: Number(course.amount_fen),
+            description: `预约课程-${course.name}`.slice(0, 60),
+            notifyUrl: account.notify_url,
+            openid,
+          },
+          ctx,
+        );
+        await this.prisma.paymentOrder.update({
+          where: { id: order.id },
+          data: { prepay_id: prepayId, status: 'pending' },
+        });
+        await this.audit.log({
+          actorType: 'student', actorId: session.guardianId, action: 'reservation.order_create',
+          resourceType: 'payment_order', resourceId: order.id, result: 'success', requestId, ip,
+          metadata: { reservation_order_id: resOrder.id, reservation_course_id: course.id, amount_fen: Number(course.amount_fen) },
+        });
+        return { order: { ...order, status: 'pending', prepay_id: prepayId }, jsapi_params: jsapiParams };
+      } catch (e: any) {
+        await this.prisma.paymentOrder.update({
+          where: { id: order.id },
+          data: { status: 'failed' },
+        });
+        throw new BadRequestException({ code: 'ERR_PAY_ORDER_FAILED', message: `创建微信支付订单失败：${e.message || '未知错误'}` });
+      }
+    }).then((r) => r.result);
+  }
+
   // ─── 支付通知（微信服务器回调，不依赖登录态） ───
 
   /** Express 层调用：返回微信协议要求的 {code,message}，一律 HTTP 200 */
@@ -293,7 +411,7 @@ export class WechatPayService {
 
     const order = await this.prisma.paymentOrder.findUnique({
       where: { out_trade_no: event.outTradeNo },
-      include: { invoice: true },
+      include: { invoice: true, reservation_order: true },
     });
     if (!order) return reject('ERR_ORDER_NOT_FOUND');
     if (event.amountFen !== undefined && Number(event.amountFen) !== Number(order.amount_fen)) {
@@ -324,7 +442,7 @@ export class WechatPayService {
       return { code: 'SUCCESS', message: '成功' };
     }
 
-    // 2. 事务入账
+    // 2. 事务入账：账单支付回写账单，课程支付回写预约订单
     try {
       await this.prisma.$transaction(async (tx) => {
         await tx.paymentOrder.update({
@@ -335,14 +453,21 @@ export class WechatPayService {
             paid_at: new Date(),
           },
         });
-        const newPaid = Number(order.invoice.amount_paid_fen) + Number(order.amount_fen);
-        await tx.invoice.update({
-          where: { id: order.invoice_id },
-          data: {
-            amount_paid_fen: BigInt(newPaid),
-            status: newPaid >= Number(order.invoice.amount_due_fen) ? 'paid' : 'processing',
-          },
-        });
+        if (order.reservation_order_id && order.reservation_order) {
+          await tx.reservationOrder.update({
+            where: { id: order.reservation_order_id },
+            data: { status: 'paid', paid_at: new Date() },
+          });
+        } else if (order.invoice) {
+          const newPaid = Number(order.invoice.amount_paid_fen) + Number(order.amount_fen);
+          await tx.invoice.update({
+            where: { id: order.invoice.id },
+            data: {
+              amount_paid_fen: BigInt(newPaid),
+              status: newPaid >= Number(order.invoice.amount_due_fen) ? 'paid' : 'processing',
+            },
+          });
+        }
         await tx.paymentNotification.updateMany({
           where: { notification_id: event.id },
           data: { processing_status: 'processed', processed_at: new Date() },
@@ -444,14 +569,17 @@ export class WechatPayService {
         data: { status: 'success', wechat_refund_id: wechatRefundId, success_at: new Date() },
       });
       const invoice = refund.payment_order.invoice;
-      const newRefunded = Number(invoice.amount_refunded_fen) + Number(refund.amount_fen);
-      await tx.invoice.update({
-        where: { id: invoice.id },
-        data: {
-          amount_refunded_fen: BigInt(newRefunded),
-          status: newRefunded >= Number(invoice.amount_paid_fen) ? 'refunded' : 'refunding',
-        },
-      });
+      // 课程订单无账单可回写（退款创建时已拦截课程订单，此处仅防御）
+      if (invoice) {
+        const newRefunded = Number(invoice.amount_refunded_fen) + Number(refund.amount_fen);
+        await tx.invoice.update({
+          where: { id: invoice.id },
+          data: {
+            amount_refunded_fen: BigInt(newRefunded),
+            status: newRefunded >= Number(invoice.amount_paid_fen) ? 'refunded' : 'refunding',
+          },
+        });
+      }
     });
     await this.audit.log({
       actorType: 'system', action: 'refund.success', resourceType: 'refund',
@@ -459,15 +587,20 @@ export class WechatPayService {
     });
   }
 
+  /** 支付订单所属校区：账单支付取账单校区，课程支付取预约订单校区 */
+  private orderCampusId(order: any): string | null {
+    return order.invoice?.campus_id || order.reservation_order?.campus_id || null;
+  }
+
   // ─── 查单（受控，用于通知丢失/超时恢复，验收 F-18） ───
 
   async reconcile(orderId: string, admin: AdminUserInfo, requestId: string) {
     const order = await this.prisma.paymentOrder.findUnique({
       where: { id: orderId },
-      include: { invoice: true, payment_account: true },
+      include: { invoice: true, reservation_order: true, payment_account: true },
     });
     if (!order) throw new NotFoundException({ code: 'ERR_NOT_FOUND', message: '订单不存在' });
-    this.scope.assertCampus(admin, order.invoice.campus_id, '订单');
+    this.scope.assertCampus(admin, this.orderCampusId(order), '订单');
     if (!['created', 'pending', 'failed'].includes(order.status)) {
       return { order_id: order.id, status: order.status, synced: false, reason: '终态订单无需查单' };
     }
@@ -502,10 +635,10 @@ export class WechatPayService {
     }
     const order = await this.prisma.paymentOrder.findUnique({
       where: { id: orderId },
-      include: { invoice: true, payment_account: true },
+      include: { invoice: true, reservation_order: true, payment_account: true },
     });
     if (!order) throw new NotFoundException({ code: 'ERR_NOT_FOUND', message: '订单不存在' });
-    this.scope.assertCampus(admin, order.invoice.campus_id, '订单');
+    this.scope.assertCampus(admin, this.orderCampusId(order), '订单');
     const { headers, rawBody } = this.mockAdapter.simulatePaid(
       order.out_trade_no, Number(order.amount_fen),
       order.payment_account.mch_id, order.payment_account.app_id,
@@ -525,9 +658,16 @@ export class WechatPayService {
     const scopeFilter = this.scope.scopeFilter(admin);
     if (query.campus_id) {
       this.scope.assertCampus(admin, query.campus_id, '校区');
-      where.invoice = { campus_id: query.campus_id };
+      // 账单支付按账单校区，课程支付按预约订单校区
+      where.OR = [
+        { invoice: { campus_id: query.campus_id } },
+        { reservation_order: { campus_id: query.campus_id } },
+      ];
     } else if (scopeFilter) {
-      where.invoice = { campus_id: scopeFilter };
+      where.OR = [
+        { invoice: { campus_id: scopeFilter } },
+        { reservation_order: { campus_id: scopeFilter } },
+      ];
     }
     if (query.fee_period_id) where.invoice = { ...(where.invoice || {}), fee_period_id: query.fee_period_id };
     if (query.status) where.status = query.status;
@@ -543,6 +683,7 @@ export class WechatPayService {
         where,
         include: {
           invoice: { select: { id: true, invoice_no: true, campus_id: true, student: { select: { name: true } } } },
+          reservation_order: { select: { id: true, order_no: true, course_name_snapshot: true, campus_id: true, student: { select: { name: true } } } },
         },
         orderBy: { created_at: 'desc' },
         skip: (page - 1) * pageSize,
@@ -555,10 +696,13 @@ export class WechatPayService {
   async adminGet(orderId: string, admin: AdminUserInfo) {
     const order = await this.prisma.paymentOrder.findUnique({
       where: { id: orderId },
-      include: { invoice: { include: { student: true, campus: true } } },
+      include: {
+        invoice: { include: { student: true, campus: true } },
+        reservation_order: { include: { student: true, campus: true } },
+      },
     });
     if (!order) throw new NotFoundException({ code: 'ERR_NOT_FOUND', message: '订单不存在' });
-    this.scope.assertCampus(admin, order.invoice.campus_id, '订单');
+    this.scope.assertCampus(admin, this.orderCampusId(order), '订单');
     // 不得显示密钥：payment_account 只返回脱敏摘要
     const account = await this.prisma.paymentAccount.findUnique({ where: { id: order.payment_account_id } });
     const { ...orderData } = order as any;
@@ -571,9 +715,10 @@ export class WechatPayService {
   async studentGetOrder(session: StudentSessionInfo, orderId: string) {
     const order = await this.prisma.paymentOrder.findUnique({
       where: { id: orderId },
-      include: { invoice: true },
+      include: { invoice: true, reservation_order: true },
     });
-    if (!order || !session.studentIds.includes(order.invoice.student_id)) {
+    const ownerId = order?.invoice?.student_id || order?.reservation_order?.student_id;
+    if (!order || !ownerId || !session.studentIds.includes(ownerId)) {
       throw new NotFoundException({ code: 'ERR_NOT_FOUND', message: '订单不存在' });
     }
     return order;
@@ -581,8 +726,16 @@ export class WechatPayService {
 
   async studentListOrders(session: StudentSessionInfo) {
     return this.prisma.paymentOrder.findMany({
-      where: { invoice: { student_id: { in: session.studentIds } } },
-      include: { invoice: { select: { id: true, invoice_no: true, fee_period_id: true } } },
+      where: {
+        OR: [
+          { invoice: { student_id: { in: session.studentIds } } },
+          { reservation_order: { student_id: { in: session.studentIds } } },
+        ],
+      },
+      include: {
+        invoice: { select: { id: true, invoice_no: true, fee_period_id: true } },
+        reservation_order: { select: { id: true, order_no: true, course_name_snapshot: true } },
+      },
       orderBy: { created_at: 'desc' },
       take: 100,
     });
@@ -592,5 +745,12 @@ export class WechatPayService {
     const d = new Date();
     const ts = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}${String(d.getSeconds()).padStart(2, '0')}`;
     return `TFS${ts}${this.crypto.randomHex(6).toUpperCase()}`;
+  }
+
+  /** 预约订单号：RC + 时间戳 + 6 位随机（与账单号 IV 前缀区分） */
+  private genReservationOrderNo(): string {
+    const d = new Date();
+    const ts = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}${String(d.getSeconds()).padStart(2, '0')}`;
+    return `RC${ts}${this.crypto.randomHex(6).toUpperCase()}`;
   }
 }

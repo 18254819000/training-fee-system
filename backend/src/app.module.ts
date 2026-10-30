@@ -26,6 +26,7 @@ import { PaymentAccountModule } from './modules/payment-account/payment-account.
 import { AdminUserModule } from './modules/admin-user/admin-user.module';
 import { StudentPortalModule } from './modules/student-portal/student-portal.module';
 import { SystemModule } from './modules/system/system.module';
+import { ReservationCourseModule } from './modules/reservation-course/reservation-course.module';
 
 @Module({
   imports: [
@@ -59,6 +60,7 @@ import { SystemModule } from './modules/system/system.module';
     AdminUserModule,
     StudentPortalModule,
     SystemModule,
+    ReservationCourseModule,
   ],
   providers: [RequestIdMiddleware, CaseMiddleware],
 })

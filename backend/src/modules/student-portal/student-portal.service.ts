@@ -111,7 +111,12 @@ export class StudentPortalService {
   /** 我的支付历史（纯数组） */
   async myPaymentHistory(session: StudentSessionInfo) {
     return this.prisma.paymentOrder.findMany({
-      where: { invoice: { student_id: { in: session.studentIds } } },
+      where: {
+        OR: [
+          { invoice: { student_id: { in: session.studentIds } } },
+          { reservation_order: { student_id: { in: session.studentIds } } },
+        ],
+      },
       include: {
         invoice: {
           select: {
@@ -120,6 +125,14 @@ export class StudentPortalService {
             student: { select: { name: true } },
             fee_period: { select: { name: true } },
             invoice_items: { select: { item_name_snapshot: true } },
+          },
+        },
+        reservation_order: {
+          select: {
+            id: true,
+            order_no: true,
+            course_name_snapshot: true,
+            student: { select: { name: true } },
           },
         },
       },

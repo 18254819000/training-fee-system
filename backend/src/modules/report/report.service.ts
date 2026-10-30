@@ -68,7 +68,7 @@ export class ReportService {
     if (query.fee_period_id) invoiceWhere.fee_period_id = query.fee_period_id;
     if (hasDate) invoiceWhere.created_at = dateFilter;
 
-    const orderWhere: any = { status: 'paid' };
+    const orderWhere: any = { status: 'paid', NOT: { invoice_id: null } };
     if (campusCond) orderWhere.invoice = { campus_id: campusCond };
     if (query.fee_period_id) orderWhere.invoice = { ...(orderWhere.invoice || {}), fee_period_id: query.fee_period_id };
     if (hasDate) orderWhere.paid_at = dateFilter;
@@ -273,13 +273,19 @@ export class ReportService {
       if (filters.status) where.status = filters.status;
       const orders = await this.prisma.paymentOrder.findMany({
         where, take: limit, orderBy: { created_at: 'desc' },
-        include: { invoice: { include: { student: true, campus: true, fee_period: true } } },
+        include: {
+          invoice: { include: { student: true, campus: true, fee_period: true } },
+          reservation_order: { include: { student: true, campus: true } },
+        },
       });
       return [
         ['订单号', '微信交易号', '账单号', '学员', '校区', '收费期', '金额(元)', '状态', '创建时间', '支付时间'],
         ...orders.map((o) => [
-          o.out_trade_no, o.wechat_transaction_id || '', o.invoice.invoice_no,
-          o.invoice.student.name, o.invoice.campus.name, o.invoice.fee_period.name,
+          o.out_trade_no, o.wechat_transaction_id || '',
+          o.invoice?.invoice_no || o.reservation_order?.order_no || '',
+          o.invoice?.student?.name || o.reservation_order?.student?.name || '',
+          o.invoice?.campus?.name || o.reservation_order?.campus?.name || '',
+          o.invoice?.fee_period?.name || (o.reservation_order ? '预约课程' : ''),
           (Number(o.amount_fen) / 100).toFixed(2), o.status,
           o.created_at.toISOString(), o.paid_at ? o.paid_at.toISOString() : '',
         ]),
