@@ -235,7 +235,7 @@ export class ReservationCourseService {
     };
   }
 
-  // ─── 公开读取（小程序首页游客也可看；仅返回启用且未到期的课程）───
+  // ─── 公开读取（小程序首页游客也可看；仅返回启用课程，已到期课程也列出、沉底，购买时再判断到期）───
 
   async publicList(campusCode?: string) {
     let campusIds: string[] | undefined;
@@ -245,7 +245,7 @@ export class ReservationCourseService {
       campusIds = [campus.id];
     }
     const items = await this.prisma.reservationCourse.findMany({
-      where: { status: 'active', deadline: { gt: new Date() }, ...(campusIds ? { campus_id: { in: campusIds } } : {}) },
+      where: { status: 'active', ...(campusIds ? { campus_id: { in: campusIds } } : {}) },
       include: { campus: { select: { id: true, name: true } } },
       orderBy: [{ deadline: 'asc' }, { created_at: 'asc' }],
     });
@@ -263,7 +263,7 @@ export class ReservationCourseService {
     return this.toPublicDto(item);
   }
 
-  // ─── 学生端读取（登录后：有学员仅看自己所在校区的启用且未到期课程；
+  // ─── 学生端读取（登录后：有学员仅看自己所在校区的启用课程，已到期也列出、沉底；
   // 无学员则看全部（与游客一致），否则无学员用户登录后首页为空、反而无法购买）───
 
   async studentList(session: StudentSessionInfo) {
@@ -274,7 +274,7 @@ export class ReservationCourseService {
     const campusIds = [...new Set(students.map((s) => s.campus_id))];
     if (campusIds.length === 0) return this.publicList();
     const items = await this.prisma.reservationCourse.findMany({
-      where: { status: 'active', deadline: { gt: new Date() }, campus_id: { in: campusIds } },
+      where: { status: 'active', campus_id: { in: campusIds } },
       include: { campus: { select: { id: true, name: true } } },
       orderBy: [{ deadline: 'asc' }, { created_at: 'asc' }],
     });
