@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } f
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { ReservationCourseService } from './reservation-course.service';
 import {
-  CreateReservationCourseDto, ReservationCourseQueryDto, UpdateReservationCourseDto,
+  CreateReservationCourseDto, ReservationCourseQueryDto, ReservationOrderQueryDto, UpdateReservationCourseDto,
 } from './dto/reservation-course.dto';
 import { AdminJwtGuard } from '../../common/guards/admin-jwt.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -52,5 +52,19 @@ export class ReservationCourseController {
     @RequestId() requestId: string, @ClientIp() ip: string,
   ) {
     return this.service.remove(user, id, requestId, ip);
+  }
+
+  @Get('admin/reservation-orders')
+  @Permissions(PERM.FEE_ITEM_READ)
+  @ApiOperation({ summary: '预约订单列表（管理端；独立于账单）' })
+  orderList(@CurrentUser() user: AdminUserInfo, @Query() query: ReservationOrderQueryDto) {
+    return this.service.adminOrderList(user, query);
+  }
+
+  @Get('admin/reservation-orders/stats')
+  @Permissions(PERM.FEE_ITEM_READ)
+  @ApiOperation({ summary: '预约订单统计（管理端；独立于账单）' })
+  orderStats(@CurrentUser() user: AdminUserInfo, @Query('campus_id') campusId?: string) {
+    return this.service.adminOrderStats(user, campusId);
   }
 }

@@ -2,10 +2,11 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { CampusScopeService } from '../../common/guards/campus-scope.service';
 import { AuditService } from '../audit/audit.service';
+import { CryptoService } from '../../common/crypto/crypto.service';
 import { AdminUserInfo, StudentSessionInfo } from '../../common/types';
 import { paginate } from '../../common/dto/pagination.dto';
 import {
-  CreateReservationCourseDto, ReservationCourseQueryDto, UpdateReservationCourseDto,
+  CreateReservationCourseDto, ReservationCourseQueryDto, ReservationOrderQueryDto, UpdateReservationCourseDto,
 } from './dto/reservation-course.dto';
 
 // 预约课程服务：管理端设置（校区隔离）+ 公开/学生端读取。
@@ -16,6 +17,7 @@ export class ReservationCourseService {
     private readonly prisma: PrismaService,
     private readonly scope: CampusScopeService,
     private readonly audit: AuditService,
+    private readonly crypto: CryptoService,
   ) {}
 
   /** 是否已到期：当前时刻超过截止时间即到期 */
@@ -137,6 +139,100 @@ export class ReservationCourseService {
       resourceId: id, result: 'success', requestId, ip,
     });
     return { id };
+  }
+
+  // ─── 预约订单（管理端：独立于账单的记录与统计）───
+  // 购买人只留手机号：独立购买取 guardian 的加密手机号解密，学员购买取学员的家长手机号解密。
+
+  /** 订单列表的校区过滤：指定校区断言权限，否则按管理员校区范围 */
+  private orderCampusWhere(user: AdminUserInfo, campusId?: string) {
+    if (campusId) {
+      this.scope.assertCampus(user, campusId, '校区');
+      return campusId;
+    }
+    return this.scope.scopeFilter(user) || undefined;
+  }
+
+  private toOrderDto(o: any) {
+    const buyerPhoneEnc = o.guardian?.phone ?? o.student?.guardian_phone ?? null;
+    return {
+      id: o.id,
+      orderNo: o.order_no,
+      courseId: o.reservation_course_id,
+      courseName: o.course_name_snapshot,
+      campusId: o.campus_id,
+      campusName: o.campus?.name,
+      studentId: o.student_id,
+      studentName: o.student?.name ?? null,
+      buyerPhone: buyerPhoneEnc ? this.crypto.decryptField(buyerPhoneEnc) : null,
+      amountFen: Number(o.amount_fen),
+      status: o.status,
+      paidAt: o.paid_at,
+      createdAt: o.created_at,
+    };
+  }
+
+  async adminOrderList(user: AdminUserInfo, query: ReservationOrderQueryDto) {
+    const page = query.page || 1;
+    const pageSize = query.pageSize || 20;
+    const where: any = {};
+    if (query.status) where.status = query.status;
+    if (query.keyword) {
+      where.OR = [
+        { order_no: { contains: query.keyword } },
+        { course_name_snapshot: { contains: query.keyword } },
+      ];
+    }
+    const campusId = this.orderCampusWhere(user, query.campus_id);
+    if (campusId) where.campus_id = campusId;
+    const [total, items] = await Promise.all([
+      this.prisma.reservationOrder.count({ where }),
+      this.prisma.reservationOrder.findMany({
+        where,
+        include: {
+          campus: { select: { id: true, name: true } },
+          student: { select: { id: true, name: true, guardian_phone: true } },
+          guardian: { select: { id: true, phone: true } },
+        },
+        orderBy: { created_at: 'desc' },
+        skip: (page - 1) * pageSize, take: pageSize,
+      }),
+    ]);
+    return paginate(items.map((it: any) => this.toOrderDto(it)), total, page, pageSize);
+  }
+
+  /** 订单统计：跟随校区筛选（不跟随状态/关键词，卡片始终是该校区全量口径） */
+  async adminOrderStats(user: AdminUserInfo, campusId?: string) {
+    const where: any = {};
+    const cid = this.orderCampusWhere(user, campusId);
+    if (cid) where.campus_id = cid;
+    const orders = await this.prisma.reservationOrder.findMany({
+      where,
+      select: { status: true, amount_fen: true, reservation_course_id: true, course_name_snapshot: true },
+    });
+    const sum = (list: typeof orders) => list.reduce((acc, o) => acc + Number(o.amount_fen), 0);
+    const byStatus = (s: string) => orders.filter((o) => o.status === s);
+    const byCourseMap = new Map<string, { courseId: string; courseName: string; paidCount: number; paidAmount: number; pendingCount: number; pendingAmount: number; totalCount: number }>();
+    for (const o of orders) {
+      const entry = byCourseMap.get(o.reservation_course_id) || {
+        courseId: o.reservation_course_id, courseName: o.course_name_snapshot,
+        paidCount: 0, paidAmount: 0, pendingCount: 0, pendingAmount: 0, totalCount: 0,
+      };
+      entry.totalCount += 1;
+      if (o.status === 'paid') { entry.paidCount += 1; entry.paidAmount += Number(o.amount_fen); }
+      if (o.status === 'pending') { entry.pendingCount += 1; entry.pendingAmount += Number(o.amount_fen); }
+      byCourseMap.set(o.reservation_course_id, entry);
+    }
+    const byCourse = [...byCourseMap.values()].sort((a, b) => b.paidAmount - a.paidAmount);
+    return {
+      summary: {
+        totalCount: orders.length,
+        paidCount: byStatus('paid').length, paidAmount: sum(byStatus('paid')),
+        pendingCount: byStatus('pending').length, pendingAmount: sum(byStatus('pending')),
+        cancelledCount: byStatus('cancelled').length, cancelledAmount: sum(byStatus('cancelled')),
+      },
+      byCourse,
+    };
   }
 
   // ─── 公开读取（小程序首页游客也可看；仅返回启用且未到期的课程）───

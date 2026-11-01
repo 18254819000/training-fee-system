@@ -33,6 +33,13 @@ export class ReservationCourseQueryDto extends PaginationDto {
   @ApiPropertyOptional({ description: '所属校区 ID' }) @IsOptional() @IsString() campus_id?: string;
 }
 
+// ---------- 预约订单（独立于账单的记录与统计） ----------
+export class ReservationOrderQueryDto extends PaginationDto {
+  @ApiPropertyOptional({ description: '订单状态：pending 待支付 / paid 已支付 / cancelled 已取消' }) @IsOptional() @IsString() status?: string;
+  @ApiPropertyOptional({ description: '订单号或课程名关键词' }) @IsOptional() @IsString() keyword?: string;
+  @ApiPropertyOptional({ description: '所属校区 ID' }) @IsOptional() @IsString() campus_id?: string;
+}
+
 export class PurchaseReservationCourseDto {
   @ApiProperty({ description: '购买所用的学员 ID（可选；不传表示不绑定学员的独立购买，购买人以当前手机号登录身份锚定）', required: false })
   @IsOptional() @IsString()

@@ -685,6 +685,9 @@ export class WechatPayService {
     }
     if (query.fee_period_id) where.invoice = { ...(where.invoice || {}), fee_period_id: query.fee_period_id };
     if (query.status) where.status = query.status;
+    // 订单类型筛选：账单支付与预约课程支付分开看（不传 = 全部）
+    if (query.type === 'invoice') where.invoice = { ...(where.invoice || {}), isNot: null };
+    else if (query.type === 'reservation') where.reservation_order = { ...(where.reservation_order || {}), isNot: null };
     if (query.out_trade_no) where.out_trade_no = { contains: query.out_trade_no };
     if (query.date_from || query.date_to) {
       where.created_at = {};
