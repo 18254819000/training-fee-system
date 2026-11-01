@@ -110,13 +110,17 @@ export class StudentPortalService {
 
   /** 我的支付历史（纯数组） */
   async myPaymentHistory(session: StudentSessionInfo) {
+    // 归属：账单/学员订单按学员，独立购买的课程订单按购买人（guardian）；
+    // guardian 分支仅在会话有 guardian 时拼接，避免 null 条件匹配到所有空学员订单
+    const or: any[] = [
+      { invoice: { student_id: { in: session.studentIds } } },
+      { reservation_order: { student_id: { in: session.studentIds } } },
+    ];
+    if (session.guardianId) {
+      or.push({ reservation_order: { guardian_id: session.guardianId } });
+    }
     return this.prisma.paymentOrder.findMany({
-      where: {
-        OR: [
-          { invoice: { student_id: { in: session.studentIds } } },
-          { reservation_order: { student_id: { in: session.studentIds } } },
-        ],
-      },
+      where: { OR: or },
       include: {
         invoice: {
           select: {

@@ -204,6 +204,7 @@ model Guardian {
   updated_at DateTime       @updatedAt
 
   student_guardians StudentGuardian[]
+  reservation_orders ReservationOrder[]
 
   @@map("guardians")
 }
@@ -312,11 +313,15 @@ model ReservationCourse {
 }
 
 // ─── 预约课程订单（一次购买一条；支付走 PaymentOrder，invoice 为空）───
+// student_id 可空：不绑定学员的独立购买（购买人以 guardian_id 锚定，手机号登录恒有）；
+// 学员购买仍走 student_id，两轨去重互不干扰（学员轨按学员、独立轨按购买人）。
 model ReservationOrder {
   id                    String   @id @default(cuid())
   order_no              String   @unique @db.VarChar(40)
-  student_id            String
-  student               Student  @relation(fields: [student_id], references: [id], onDelete: Restrict)
+  student_id            String?
+  student               Student? @relation(fields: [student_id], references: [id], onDelete: Restrict)
+  guardian_id           String?
+  guardian              Guardian? @relation(fields: [guardian_id], references: [id], onDelete: Restrict)
   campus_id             String
   campus                Campus   @relation(fields: [campus_id], references: [id], onDelete: Restrict)
   reservation_course_id String
@@ -331,6 +336,7 @@ model ReservationOrder {
   payment_orders PaymentOrder[]
 
   @@index([student_id])
+  @@index([guardian_id])
   @@index([reservation_course_id])
   @@map("reservation_orders")
 }

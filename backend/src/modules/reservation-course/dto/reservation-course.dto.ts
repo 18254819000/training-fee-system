@@ -34,7 +34,7 @@ export class ReservationCourseQueryDto extends PaginationDto {
 }
 
 export class PurchaseReservationCourseDto {
-  @ApiProperty({ description: '购买所用的学员 ID（须在当前会话绑定范围内）' })
-  @IsString() @IsNotEmpty()
-  student_id!: string;
+  @ApiProperty({ description: '购买所用的学员 ID（可选；不传表示不绑定学员的独立购买，购买人以当前手机号登录身份锚定）', required: false })
+  @IsOptional() @IsString()
+  student_id?: string;
 }

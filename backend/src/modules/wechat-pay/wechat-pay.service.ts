@@ -212,6 +212,9 @@ export class WechatPayService {
   }
 
   // ─── 学生端：购买预约课程 ───
+  // 两轨：传 student_id 走学员轨（沿用原有校验：会话内、有效、校区一致、按学员去重）；
+  // 不传 student_id 走独立轨（不绑定学员，购买人以会话 guardian_id 锚定、按购买人去重；
+  // 手机号登录仍是必需的：JSAPI 调起需要 guardian 的 openid，完全匿名无法下单）。
 
   async createCourseOrder(
     session: StudentSessionInfo,
@@ -221,7 +224,7 @@ export class WechatPayService {
     requestId: string,
     ip: string,
   ) {
-    const key = idempotencyKey || `course-pay-${reservationCourseId}-${studentId}`;
+    const key = idempotencyKey || `course-pay-${reservationCourseId}-${studentId || `g-${session.guardianId || 'guest'}`}`;
     return this.idempotency.execute('course-payment-order', key, 900, async () => {
       const course = await this.prisma.reservationCourse.findUnique({ where: { id: reservationCourseId } });
       if (!course || course.status !== 'active') {
@@ -231,34 +234,45 @@ export class WechatPayService {
       if (new Date() > course.deadline) {
         throw new BadRequestException({ code: 'ERR_COURSE_EXPIRED', message: '该课程已到期，无法购买' });
       }
-      if (!studentId || !session.studentIds.includes(studentId)) {
-        throw new ForbiddenException({ code: 'ERR_FORBIDDEN', message: '无权为该学员购买' });
+      // 购买人锚点：学员轨按学员，独立轨按购买人（guardian）；两轨互不干扰
+      let buyerWhere: { student_id?: string; guardian_id?: string };
+      if (studentId) {
+        if (!session.studentIds.includes(studentId)) {
+          throw new ForbiddenException({ code: 'ERR_FORBIDDEN', message: '无权为该学员购买' });
+        }
+        const student = await this.prisma.student.findUnique({ where: { id: studentId } });
+        if (!student || student.status !== 'active') {
+          throw new BadRequestException({ code: 'ERR_STUDENT_INVALID', message: '学员无效或已停用' });
+        }
+        // 校区一致：预约课程只属于一个校区，购买学员须属于该校区
+        if (student.campus_id !== course.campus_id) {
+          throw new ForbiddenException({ code: 'ERR_FORBIDDEN', message: '该课程不属于学员所在校区' });
+        }
+        buyerWhere = { student_id: studentId };
+      } else {
+        if (!session.guardianId) {
+          throw new BadRequestException({ code: 'ERR_NO_BUYER', message: '无法确认购买人身份，请重新登录' });
+        }
+        buyerWhere = { guardian_id: session.guardianId };
       }
-      const student = await this.prisma.student.findUnique({ where: { id: studentId } });
-      if (!student || student.status !== 'active') {
-        throw new BadRequestException({ code: 'ERR_STUDENT_INVALID', message: '学员无效或已停用' });
-      }
-      // 校区一致：预约课程只属于一个校区，购买学员须属于该校区
-      if (student.campus_id !== course.campus_id) {
-        throw new ForbiddenException({ code: 'ERR_FORBIDDEN', message: '该课程不属于学员所在校区' });
-      }
-      // 已购保护：同一学员同一课程已支付，拒绝重复购买
+      // 已购保护：同一购买人同一课程已支付，拒绝重复购买
       const paid = await this.prisma.reservationOrder.findFirst({
-        where: { student_id: studentId, reservation_course_id: course.id, status: 'paid' },
+        where: { ...buyerWhere, reservation_course_id: course.id, status: 'paid' },
       });
       if (paid) {
         throw new BadRequestException({ code: 'ERR_COURSE_ALREADY_PAID', message: '该课程已购买，无需重复购买' });
       }
-      // 复用该学员该课程的待支付订单（关闭其旧支付单，避免并发有效订单）
+      // 复用该购买人该课程的待支付订单（关闭其旧支付单，避免并发有效订单）
       let resOrder = await this.prisma.reservationOrder.findFirst({
-        where: { student_id: studentId, reservation_course_id: course.id, status: 'pending' },
+        where: { ...buyerWhere, reservation_course_id: course.id, status: 'pending' },
         orderBy: { created_at: 'desc' },
       });
       if (!resOrder) {
         resOrder = await this.prisma.reservationOrder.create({
           data: {
             order_no: this.genReservationOrderNo(),
-            student_id: studentId,
+            student_id: studentId || null,
+            guardian_id: studentId ? null : session.guardianId,
             campus_id: course.campus_id,
             reservation_course_id: course.id,
             course_name_snapshot: course.name,
@@ -717,21 +731,35 @@ export class WechatPayService {
       where: { id: orderId },
       include: { invoice: true, reservation_order: true },
     });
-    const ownerId = order?.invoice?.student_id || order?.reservation_order?.student_id;
-    if (!order || !ownerId || !session.studentIds.includes(ownerId)) {
+    if (!order) {
+      throw new NotFoundException({ code: 'ERR_NOT_FOUND', message: '订单不存在' });
+    }
+    // 归属校验：账单/学员订单按学员，独立购买的课程订单按购买人（guardian）
+    const ownerStudentId = order.invoice?.student_id || order.reservation_order?.student_id;
+    if (ownerStudentId) {
+      if (!session.studentIds.includes(ownerStudentId)) {
+        throw new NotFoundException({ code: 'ERR_NOT_FOUND', message: '订单不存在' });
+      }
+    } else if (order.reservation_order?.guardian_id) {
+      if (session.guardianId !== order.reservation_order.guardian_id) {
+        throw new NotFoundException({ code: 'ERR_NOT_FOUND', message: '订单不存在' });
+      }
+    } else {
       throw new NotFoundException({ code: 'ERR_NOT_FOUND', message: '订单不存在' });
     }
     return order;
   }
 
   async studentListOrders(session: StudentSessionInfo) {
+    const or: any[] = [
+      { invoice: { student_id: { in: session.studentIds } } },
+      { reservation_order: { student_id: { in: session.studentIds } } },
+    ];
+    if (session.guardianId) {
+      or.push({ reservation_order: { guardian_id: session.guardianId } });
+    }
     return this.prisma.paymentOrder.findMany({
-      where: {
-        OR: [
-          { invoice: { student_id: { in: session.studentIds } } },
-          { reservation_order: { student_id: { in: session.studentIds } } },
-        ],
-      },
+      where: { OR: or },
       include: {
         invoice: { select: { id: true, invoice_no: true, fee_period_id: true } },
         reservation_order: { select: { id: true, order_no: true, course_name_snapshot: true } },
